@@ -6,6 +6,11 @@ dist
 
 /src/generated
 
+# Local tooling / reference material (not part of the deliverable)
+.opencode
+PH-Healthcare-Backend-main
+*.zip
+
 # Lock Files
 pnpm-lock.yaml
 yarn.lock
