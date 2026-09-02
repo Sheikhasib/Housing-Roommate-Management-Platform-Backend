@@ -1,0 +1,47 @@
+import { Router } from "express";
+import { Role } from "../../../generated/prisma/enums";
+import { auth } from "../../middleware/checkAuth";
+import { validateRequest } from "../../middleware/validateRequest";
+import { AdminController } from "./admin.controller";
+import { AdminValidation } from "./admin.validation";
+
+const router = Router();
+
+// Dashboard stats - ADMIN
+router.get(
+	"/dashboard-stats",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	AdminController.getAdminDashboardStats,
+);
+
+// All users - ADMIN
+router.get(
+	"/users",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	AdminController.getAllUsers,
+);
+
+// Update user status (block/unblock) - ADMIN
+router.patch(
+	"/users/:userId/status",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	validateRequest(AdminValidation.UpdateUserStatusZodSchema),
+	AdminController.updateUserStatus,
+);
+
+// Update user role - SUPER_ADMIN
+router.patch(
+	"/users/:userId/role",
+	auth(Role.SUPER_ADMIN),
+	validateRequest(AdminValidation.UpdateUserRoleZodSchema),
+	AdminController.updateUserRole,
+);
+
+// Audit logs - ADMIN
+router.get(
+	"/audit-logs",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	AdminController.getAuditLogs,
+);
+
+export const AdminRoutes = router;
