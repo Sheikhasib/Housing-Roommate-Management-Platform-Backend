@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Rejected</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f7f7f7; color: #333; }
+      .container { max-width: 500px; margin: 40px auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+      .footer { margin-top: 30px; font-size: 12px; color: #888; }
+    </style>
+</head>
+<body>
+    <div class="container">
+      <h2>Your application was rejected</h2>
+      <p>Hi <%= name %>, the owner rejected your application for the room "<%= roomName %>".</p>
+      <% if (reason) { %>
+        <p><strong>Reason:</strong> <%= reason %></p>
+      <% } %>
+      <p>Don't worry - there are plenty of other rooms waiting for you. Keep exploring!</p>
+      <div class="footer">&copy; Housing & Roommate Management Platform. All rights reserved.</div>
+    </div>
+</body>
+</html>

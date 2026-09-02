@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maintenance Update</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f7f7f7; color: #333; }
+      .container { max-width: 500px; margin: 40px auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+      .footer { margin-top: 30px; font-size: 12px; color: #888; }
+    </style>
+</head>
+<body>
+    <div class="container">
+      <h2>Maintenance update 🔧</h2>
+      <p>Hi <%= name %>, your maintenance request "<%= title %>" is now <strong><%= status %></strong>.</p>
+      <% if (resolutionNotes && resolutionNotes !== 'N/A') { %>
+        <p><strong>Notes:</strong> <%= resolutionNotes %></p>
+      <% } %>
+      <div class="footer">&copy; Housing & Roommate Management Platform. All rights reserved.</div>
+    </div>
+</body>
+</html>
