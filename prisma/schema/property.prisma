@@ -23,12 +23,13 @@ model Property {
   updatedAt DateTime  @updatedAt
 
   //relations
-  ownerId String       @unique
+  ownerId String
   owner   OwnerProfile @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   units Unit[]
   rooms Room[]
 
+  @@index([ownerId], name: "idx_property_owner")
   @@index([city], name: "idx_property_city")
   @@index([isDeleted], name: "idx_property_is_deleted")
   @@map("properties")
