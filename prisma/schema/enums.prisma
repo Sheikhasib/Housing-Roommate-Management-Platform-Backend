@@ -1,0 +1,154 @@
+// =====================================================================
+// Global enums shared across every domain of the platform.
+// =====================================================================
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  OWNER
+  TENANT
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+  DELETED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum AuthProvider {
+  GOOGLE
+  CREDENTIAL
+}
+
+enum OwnerVerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PropertyType {
+  APARTMENT
+  HOSTEL
+  DORMITORY
+  VILLA
+  SHARED_HOUSE
+  OTHER
+}
+
+enum RoomType {
+  PRIVATE_ROOM
+  SHARED_ROOM
+  ENTIRE_FLAT
+  BED
+}
+
+enum RoomStatus {
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  MAINTENANCE
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum ViewingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum ViewingTimeSlot {
+  MORNING
+  AFTERNOON
+  EVENING
+}
+
+enum RoommateRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum LeaseStatus {
+  ACTIVE
+  COMPLETED
+  TERMINATED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentPurpose {
+  DEPOSIT
+  RENT
+  UTILITY
+}
+
+enum InvoiceType {
+  RENT
+  UTILITY
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum MaintenanceStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MaintenanceCategory {
+  PLUMBING
+  ELECTRICAL
+  APPLIANCE
+  FURNITURE
+  PAINTING
+  CLEANING
+  OTHER
+}
+
+enum NotificationType {
+  APPLICATION
+  VIEWING
+  PAYMENT
+  LEASE
+  MAINTENANCE
+  INVOICE
+  SYSTEM
+}

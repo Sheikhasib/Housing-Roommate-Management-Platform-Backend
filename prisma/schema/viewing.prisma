@@ -1,0 +1,31 @@
+// ViewingRequest = a tenant asks the owner for a physical/virtual viewing of a
+// room. The owner approves and schedules a time, or rejects with a reason.
+
+model ViewingRequest {
+  id String @id @default(uuid())
+
+  preferredDate DateTime
+  timeSlot      ViewingTimeSlot @default(MORNING)
+  message       String?
+
+  scheduledDateTime DateTime? // set by the owner when approving
+  status            ViewingStatus @default(PENDING)
+  rejectionReason   String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  //relations
+  tenantProfileId String
+  tenantProfile   TenantProfile @relation(fields: [tenantProfileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  roomId String
+  room   Room @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([tenantProfileId], name: "idx_viewing_tenant")
+  @@index([roomId], name: "idx_viewing_room")
+  @@index([status], name: "idx_viewing_status")
+  @@map("viewing_requests")
+}

@@ -1,0 +1,43 @@
+// MaintenanceRequest = a tenant reports a problem with their rented room; the
+// owner (or an admin) triages it and moves it along the state machine.
+
+model MaintenanceRequest {
+  id String @id @default(uuid())
+
+  category    MaintenanceCategory @default(OTHER)
+  priority    MaintenancePriority @default(MEDIUM)
+  title       String
+  description String?
+
+  imageUrl    String?
+  imagePublicId String?
+
+  status MaintenanceStatus @default(OPEN)
+
+  // staff member who is handling the request (usually the owner or an admin)
+  assignedTo String?
+  assignedAt DateTime?
+
+  resolutionNotes String?
+  resolvedAt      DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  //relations
+  tenantProfileId String
+  tenantProfile   TenantProfile @relation(fields: [tenantProfileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  roomId String
+  room   Room @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  leaseId String?
+  lease   Lease? @relation(fields: [leaseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([tenantProfileId], name: "idx_maintenance_tenant")
+  @@index([roomId], name: "idx_maintenance_room")
+  @@index([status], name: "idx_maintenance_status")
+  @@map("maintenance_requests")
+}

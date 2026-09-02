@@ -1,0 +1,31 @@
+// A single shared auth account. Every actor on the platform (tenant, owner or
+// admin) is a User; role-specific data lives in 1:1 profile models.
+
+model User {
+  id                 String       @id @default(uuid())
+  name               String
+  email              String
+  password           String?
+  googleId           String?      @unique
+  authProvider       AuthProvider @default(CREDENTIAL)
+  emailVerified      Boolean      @default(false)
+  role               Role         @default(TENANT)
+  status             UserStatus   @default(ACTIVE)
+  needPasswordChange Boolean      @default(false)
+  imageUrl           String?      @default("")
+  imagePublicId      String?      @default("")
+  isDeleted          Boolean      @default(false)
+  deletedAt          DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  // role based 1:1 profiles
+  tenantProfile TenantProfile?
+  ownerProfile  OwnerProfile?
+
+  notifications Notification[]
+
+  @@unique([email])
+  @@index([role, status], name: "idx_user_role_status")
+  @@map("users")
+}

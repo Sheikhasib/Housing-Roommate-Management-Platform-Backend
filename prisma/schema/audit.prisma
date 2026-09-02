@@ -1,0 +1,27 @@
+// AuditLog = append-only trail of who changed what (used for compliance and
+// admin investigation). Written for critical actions such as owner approval,
+// application reviews, user status/role changes, refunds and lease changes.
+
+model AuditLog {
+  id String @id @default(uuid())
+
+  action      String // e.g. "APPLICATION_APPROVED", "USER_BLOCKED", "OWNER_VERIFIED"
+  entity      String // affected table/model name
+  entityId    String?
+  actorId     String?
+  actorEmail  String?
+  actorRole   String?
+
+  before Json?
+  after  Json?
+
+  ipAddress  String?
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entity], name: "idx_audit_entity")
+  @@index([actorId], name: "idx_audit_actor")
+  @@index([createdAt], name: "idx_audit_created_at")
+  @@map("audit_logs")
+}

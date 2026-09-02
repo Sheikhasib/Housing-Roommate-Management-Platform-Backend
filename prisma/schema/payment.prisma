@@ -1,0 +1,46 @@
+// Payment = a single bKash payment. A payment row is created when the payment
+// session is initiated and updated through the whole lifecycle
+// (UNPAID -> PROCESSING -> PAID / FAILED / CANCELLED / REFUNDED).
+//
+// One payment belongs to exactly one business subject:
+//   - an Application  (DEPOSIT - locks the room and creates the Lease)
+//   - an Invoice      (RENT or UTILITY - settles a bill share)
+
+model Payment {
+  id String @id @default(uuid())
+
+  status  PaymentStatus  @default(UNPAID)
+  purpose PaymentPurpose @default(DEPOSIT)
+
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("BDT")
+
+  paymentGateway        String @default("bKash")
+  merchantInvoiceNumber String @unique // applicationId or invoiceId
+
+  bKashPaymentId String?
+  bKashTrxId     String?
+  payerReference String? // payer email or phone
+  paidAt         String? // payment time returned by bKash
+
+  gatwayResponse Json?
+
+  refundTrxId  String?
+  refundAmount Decimal? @db.Decimal(10, 2)
+  refundReason String?
+  refundAt     String? // refund time returned by bKash
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  //relations (exactly one of these is populated depending on `purpose`)
+  applicationId String?     @unique
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  invoiceId String?  @unique
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([status], name: "idx_payment_status")
+  @@index([purpose], name: "idx_payment_purpose")
+  @@map("payments")
+}

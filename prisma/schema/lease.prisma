@@ -1,0 +1,63 @@
+// Lease = the binding tenancy agreement. Created transactionally when the
+// tenant pays the booking deposit on an APPROVED application. A shared room
+// can host several leases at once (one per roommate/bed).
+
+model Lease {
+  id String @id @default(uuid())
+
+  startDate DateTime
+  endDate   DateTime
+
+  // Snapshot of the amounts agreed at lease time.
+  monthlyRent   Decimal @db.Decimal(10, 2)
+  depositAmount Decimal @db.Decimal(10, 2)
+
+  status LeaseStatus @default(ACTIVE)
+
+  terminationReason String?
+  terminatedBy      String?
+  terminatedAt      DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  //relations
+  applicationId String      @unique
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  tenantProfileId String
+  tenantProfile   TenantProfile @relation(fields: [tenantProfileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  roomId String
+  room   Room @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  invoices            Invoice[]
+  documents           LeaseDocument[]
+  maintenanceRequests MaintenanceRequest[]
+
+  @@index([tenantProfileId], name: "idx_lease_tenant")
+  @@index([roomId], name: "idx_lease_room")
+  @@index([status], name: "idx_lease_status")
+  @@map("leases")
+}
+
+// LeaseDocument = signed rental agreement / any document attached to a lease.
+model LeaseDocument {
+  id String @id @default(uuid())
+
+  name        String
+  url         String
+  publicId    String?
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leaseId String
+  lease   Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([leaseId], name: "idx_lease_doc_lease")
+  @@map("lease_documents")
+}

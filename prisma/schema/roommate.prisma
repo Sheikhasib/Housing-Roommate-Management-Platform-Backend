@@ -1,0 +1,45 @@
+// Roommate domain. A roommate pair is two tenant profiles who agreed to live
+// together after a match + mutual request/accept.
+
+model RoommateRequest {
+  id String @id @default(uuid())
+
+  message       String?
+  status        RoommateRequestStatus @default(PENDING)
+  respondedAt   DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  //relations
+  senderId String
+  sender   TenantProfile @relation("RoommateRequestSender", fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  receiverId String
+  receiver   TenantProfile @relation("RoommateRequestReceiver", fields: [receiverId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([senderId], name: "idx_roommate_req_sender")
+  @@index([receiverId], name: "idx_roommate_req_receiver")
+  @@map("roommate_requests")
+}
+
+model RoommatePair {
+  id String @id @default(uuid())
+
+  // tenantAId is always < tenantBId (normalised to avoid duplicate pairs)
+  tenantAId String
+  tenantA   TenantProfile @relation("RoommatePairTenantA", fields: [tenantAId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  tenantBId String
+  tenantB   TenantProfile @relation("RoommatePairTenantB", fields: [tenantBId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications Application[]
+
+  @@unique([tenantAId, tenantBId], name: "unique_roommate_pair")
+  @@map("roommate_pairs")
+}

@@ -1,0 +1,41 @@
+// Application = a tenant's formal request to rent a specific room.
+// State machine: PENDING -> (owner reviews) APPROVED | REJECTED | EXPIRED
+//                 APPROVED -> (tenant pays booking deposit) -> Lease is created
+// A tenant can cancel their own PENDING/APPROVED application (CANCELLED).
+
+model Application {
+  id String @id @default(uuid())
+
+  moveInDate  DateTime
+  leaseMonths Int    @default(12)
+  message     String?
+
+  status ApplicationStatus @default(PENDING)
+
+  rejectionReason String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  //relations
+  tenantProfileId String
+  tenantProfile   TenantProfile @relation(fields: [tenantProfileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  roomId String
+  room   Room @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  roommatePairId String?
+  roommatePair   RoommatePair? @relation(fields: [roommatePairId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  payment Payment?
+  lease   Lease?
+
+  @@index([tenantProfileId], name: "idx_application_tenant")
+  @@index([roomId], name: "idx_application_room")
+  @@index([status], name: "idx_application_status")
+  @@map("applications")
+}

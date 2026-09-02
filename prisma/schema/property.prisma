@@ -1,0 +1,58 @@
+// Property = a building / listing owned by a verified owner. It can optionally
+// contain Units (flats / apartments) and always contains rentable Rooms.
+
+model Property {
+  id String @id @default(uuid())
+
+  title       String
+  description String?
+  type        PropertyType @default(APARTMENT)
+
+  city        String
+  area        String?
+  address     String?
+  googleMapUrl String?
+
+  amenities Json? // e.g. ["wifi", "lift", "parking", "generator"]
+  images    Json? // [{ url: String, publicId: String }]
+  houseRules String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  //relations
+  ownerId String       @unique
+  owner   OwnerProfile @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  units Unit[]
+  rooms Room[]
+
+  @@index([city], name: "idx_property_city")
+  @@index([isDeleted], name: "idx_property_is_deleted")
+  @@map("properties")
+}
+
+// Unit = an optional "flat / apartment" layer between a building and its rooms.
+// A small building can skip units and attach rooms straight to the property.
+model Unit {
+  id String @id @default(uuid())
+
+  label       String // e.g. "Flat 3B", "Apartment 1204"
+  description String?
+  floor       Int?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  rooms Room[]
+
+  @@index([propertyId], name: "idx_unit_property")
+  @@map("units")
+}

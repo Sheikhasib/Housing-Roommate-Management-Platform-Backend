@@ -1,0 +1,47 @@
+// TenantProfile holds everything a TENANT needs to search for a room and to be
+// matched with compatible roommates (budget, location, lifestyle etc).
+
+model TenantProfile {
+  id String @id @default(uuid(7))
+
+  name          String
+  email         String    @unique
+  contactNumber String?
+  gender        Gender?
+  dateOfBirth   DateTime?
+  occupation    String?
+  bio           String?
+
+  // Roommate matching + search preference fields
+  preferredCity      String?
+  monthlyBudgetMax   Int?
+  moveInDate         DateTime?
+  smoker             Boolean  @default(false)
+  petFriendly        Boolean  @default(false)
+  hasPets            Boolean  @default(false)
+  lookingForRoommate Boolean  @default(false)
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  //relations
+  userId String   @unique
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  applications    Application[]
+  leases          Lease[]
+  viewingRequests ViewingRequest[]
+  maintenanceRequests MaintenanceRequest[]
+
+  // roommate relationship side of the request / pair tables
+  roommateRequestsSent     RoommateRequest[] @relation("RoommateRequestSender")
+  roommateRequestsReceived RoommateRequest[] @relation("RoommateRequestReceiver")
+  roommatePairsAsA         RoommatePair[]    @relation("RoommatePairTenantA")
+  roommatePairsAsB         RoommatePair[]    @relation("RoommatePairTenantB")
+
+  @@index([preferredCity], name: "idx_tenant_city")
+  @@index([lookingForRoommate], name: "idx_tenant_looking_roommate")
+  @@map("tenant_profiles")
+}

@@ -1,0 +1,52 @@
+// Room = the actual rentable unit. The owner manages availability by toggling
+// isPublished + status. bedCount/occupiedBeds allow a shared room to host
+// multiple roommates, each holding their own lease.
+
+model Room {
+  id String @id @default(uuid())
+
+  name        String // e.g. "Room 101", "Master Bedroom"
+  description String?
+  type        RoomType @default(PRIVATE_ROOM)
+
+  // occupancy model
+  bedCount      Int       @default(1)
+  occupiedBeds  Int       @default(0)
+
+  monthlyRent   Decimal @db.Decimal(10, 2)
+  bookingDeposit Decimal @db.Decimal(10, 2) @default(0) // amount needed to lock the room (usually 1st month rent)
+  minLeaseMonths Int     @default(1)
+  sizeSqft       Int?
+  isFurnished    Boolean @default(false)
+  amenities      Json? // ["attached bathroom", "balcony", "desk", ...]
+  images         Json? // [{ url: String, publicId: String }]
+  availableFrom  DateTime?
+
+  status      RoomStatus @default(AVAILABLE)
+  isPublished Boolean    @default(false)
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  //relations
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  unitId String?
+  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  applications         Application[]
+  leases               Lease[]
+  viewingRequests      ViewingRequest[]
+  invoices             Invoice[]
+  maintenanceRequests  MaintenanceRequest[]
+
+  @@unique([propertyId, unitId, name], name: "unique_room_in_unit")
+  @@index([propertyId], name: "idx_room_property")
+  @@index([status], name: "idx_room_status")
+  @@index([isPublished], name: "idx_room_published")
+  @@index([monthlyRent], name: "idx_room_rent")
+  @@map("rooms")
+}

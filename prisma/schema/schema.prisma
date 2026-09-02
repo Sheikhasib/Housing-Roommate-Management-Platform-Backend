@@ -1,0 +1,11 @@
+// Housing & Roommate Management Platform - Prisma Schema
+// This is the entry file for the multi-file schema located in this folder.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
