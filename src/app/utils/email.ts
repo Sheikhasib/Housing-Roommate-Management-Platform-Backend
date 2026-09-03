@@ -11,7 +11,9 @@ type TMailOptions = {
 	attachments?: { filename: string; content: Buffer }[];
 };
 
-// Render an EJS template and send it with nodemailer.
+// Render an EJS template and send it with nodemailer. Shared values
+// (frontend base URL for CTA links, current year for the footer) are injected
+// into every render so templates don't need them per call site.
 export const sendTemplateEmail = async ({
 	to,
 	subject,
@@ -24,7 +26,11 @@ export const sendTemplateEmail = async ({
 		`src/app/templates/${template}.ejs`,
 	);
 
-	const html = await ejs.renderFile(templatePath, data);
+	const html = await ejs.renderFile(templatePath, {
+		appUrl: config.frontend_url,
+		year: new Date().getFullYear(),
+		...data,
+	});
 
 	await transporter.sendMail({
 		from: config.email_sender,

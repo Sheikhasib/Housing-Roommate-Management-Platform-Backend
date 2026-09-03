@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums";
 import { upload } from "../../lib/multer";
-import { auth } from "../../middleware/checkAuth";
+import { auth, optionalAuth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { PropertyController } from "./property.controller";
 import { PropertyValidation } from "./property.validation";
@@ -55,8 +55,9 @@ router.post(
 	PropertyController.createUnit,
 );
 
-// Single property detail (public, owner & admin aware)
-router.get("/:propertyId", PropertyController.getPropertyDetail);
+// Single property detail (public; owners/admins get the full object via
+// optionalAuth - guests and tenants always get the public view)
+router.get("/:propertyId", optionalAuth, PropertyController.getPropertyDetail);
 
 // Update property - OWNER
 router.patch(

@@ -101,30 +101,42 @@ const verifyOwnerProfile = async (
 		return updated;
 	});
 
-	// email + in-app notification for the owner
-	await sendTemplateEmail({
-		to: existingOwnerProfile.email,
-		subject: isApproved
-			? "Your Owner Account Has Been Approved"
-			: "Your Owner Account Has Been Rejected",
-		template: isApproved ? "owner-account-approved" : "owner-account-rejected",
-		data: {
-			name: existingOwnerProfile.name,
-			reason: existingOwnerProfile.rejectionReason,
-		},
-	});
+	// email + in-app notification for the owner. The decision is already
+	// committed: side-effect failures must not turn it into a 500, and one
+	// failing side effect must not skip the other.
+	try {
+		await sendTemplateEmail({
+			to: existingOwnerProfile.email,
+			subject: isApproved
+				? "Your Owner Account Has Been Approved"
+				: "Your Owner Account Has Been Rejected",
+			template: isApproved
+				? "owner-account-approved"
+				: "owner-account-rejected",
+			data: {
+				name: existingOwnerProfile.name,
+				reason: rejectionReason,
+			},
+		});
+	} catch (error) {
+		console.log("Owner verification email failed:", error);
+	}
 
-	await createNotification({
-		userId: existingOwnerProfile.userId,
-		type: NotificationType.SYSTEM,
-		title: isApproved
-			? "Owner account approved ✅"
-			: "Owner account rejected ❌",
-		message: isApproved
-			? "Your owner account has been approved. You can now list your properties."
-			: `Your owner account was rejected. Reason: ${existingOwnerProfile.rejectionReason || "not provided"}`,
-		data: { ownerProfileId },
-	});
+	try {
+		await createNotification({
+			userId: existingOwnerProfile.userId,
+			type: NotificationType.SYSTEM,
+			title: isApproved
+				? "Owner account approved ✅"
+				: "Owner account rejected ❌",
+			message: isApproved
+				? "Your owner account has been approved. You can now list your properties."
+				: `Your owner account was rejected. Reason: ${rejectionReason || "not provided"}`,
+			data: { ownerProfileId },
+		});
+	} catch (error) {
+		console.log("Owner verification notification failed:", error);
+	}
 
 	return updatedOwnerProfile;
 };
@@ -208,6 +220,11 @@ const updateMyOwnerProfile = async (
 
 	if (!ownerProfile) {
 		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
+	}
+
+	// nothing provided: skip the no-op write (it would still bump updatedAt)
+	if (Object.keys(payload).length === 0) {
+		return ownerProfile;
 	}
 
 	const updatedOwnerProfile = await prisma.ownerProfile.update({

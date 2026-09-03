@@ -83,7 +83,8 @@ const getMyProperties = async (user: RequestUser, query: IQuery) => {
 					occupiedBeds: true,
 				},
 			},
-			_count: { select: { rooms: true } },
+			// count only the rooms the include actually returns (no soft-deleted ones)
+			_count: { select: { rooms: { where: { isDeleted: false } } } },
 		},
 	});
 
@@ -217,7 +218,6 @@ const getPropertyDetail = async (propertyId: string, viewer?: RequestUser) => {
 						id: owner.id,
 						name: owner.name,
 						companyName: owner.companyName,
-						verificationStatus: owner.verificationStatus,
 						user: owner.user ? { imageUrl: owner.user.imageUrl } : null,
 					}
 				: null,
@@ -341,7 +341,8 @@ const getAllProperties = async (query: IQuery) => {
 					verificationStatus: true,
 				},
 			},
-			_count: { select: { rooms: true } },
+			// count only live rooms (soft-deleted rooms are not visible to admins)
+			_count: { select: { rooms: { where: { isDeleted: false } } } },
 		},
 	});
 

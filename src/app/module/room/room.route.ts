@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums";
 import { upload } from "../../lib/multer";
-import { auth } from "../../middleware/checkAuth";
+import { auth, optionalAuth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { RoomController } from "./room.controller";
 import { RoomValidation } from "./room.validation";
@@ -22,8 +22,9 @@ router.get("/my-rooms", auth(Role.OWNER), RoomController.getMyRooms);
 // Public room search (no auth)
 router.get("/public", RoomController.getPublicRooms);
 
-// Single room detail (public/owner/admin aware)
-router.get("/:roomId", RoomController.getRoomDetail);
+// Single room detail (public; owners/admins see their own drafts via
+// optionalAuth - guests and tenants only ever see published rooms)
+router.get("/:roomId", optionalAuth, RoomController.getRoomDetail);
 
 // Update room - OWNER
 router.patch(

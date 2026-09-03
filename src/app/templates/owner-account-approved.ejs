@@ -1,21 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Owner Account Approved</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; color: #333; }
-      .container { max-width: 500px; margin: 40px auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-      .footer { margin-top: 30px; font-size: 12px; color: #888; }
-    </style>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="color-scheme" content="light dark">
+	<meta name="supported-color-schemes" content="light dark">
+	<title>Owner account approved — Housing &amp; Roommate</title>
+	<style>
+		body { margin: 0; padding: 0; word-spacing: normal; -webkit-text-size-adjust: 100%; }
+		.preheader { display: none !important; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0; }
+		@media (prefers-color-scheme: dark) {
+			.email-canvas { background-color: #171410 !important; }
+			.email-footer { color: #8b857b !important; }
+		}
+	</style>
 </head>
-<body>
-    <div class="container">
-      <h2>Owner account approved ✅</h2>
-      <p>Congratulations <%= name %>! Your owner account has been verified by our admin team.</p>
-      <p>You can now list your properties, create rooms and receive tenant applications.</p>
-      <div class="footer">&copy; Housing & Roommate Management Platform. All rights reserved.</div>
-    </div>
+<body class="email-canvas" style="margin:0;padding:0;background-color:#F4F1EA;">
+	<span class="preheader" style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">Your owner account is verified — you can list properties now.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</span>
+
+	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F4F1EA;">
+		<tr>
+			<td align="center" style="padding:40px 16px 48px;">
+
+				<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;background-color:#FFFFFF;border:1px solid #E9E3D7;border-radius:16px;overflow:hidden;">
+
+					<tr>
+						<td style="padding:26px 36px;background-color:#0F5B47;border-radius:16px 16px 0 0;">
+							<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+								<tr>
+									<td style="width:30px;height:30px;background-color:#FFFFFF;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;font-weight:800;color:#0F5B47;text-align:center;line-height:30px;">H</td>
+									<td style="padding-left:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;font-weight:700;color:#FFFFFF;letter-spacing:-0.1px;">Housing &amp; Roommate</td>
+								</tr>
+							</table>
+						</td>
+					</tr>
+					<tr><td style="height:4px;background-color:#E8A33D;font-size:0;line-height:0;">&nbsp;</td></tr>
+
+					<tr>
+						<td style="padding:36px 36px 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+
+							<span style="display:inline-block;padding:6px 14px;background-color:#E6F3EC;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:#1D7A4F;">Verification approved</span>
+
+							<h1 style="margin:22px 0 0;font-size:27px;line-height:1.25;font-weight:800;letter-spacing:-0.6px;color:#1B1712;">You're verified, <%= name %></h1>
+
+							<p style="margin:16px 0 0;font-size:15px;line-height:1.65;color:#4A443C;">Congratulations — our team has reviewed and approved your owner verification. Your account can now go live on the platform:</p>
+
+							<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 0;">
+								<tr>
+									<td width="34" valign="top" style="padding:0 0 14px;">
+										<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+											<td style="width:24px;height:24px;background-color:#E6F3EC;border-radius:999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:12px;font-weight:800;color:#1D7A4F;text-align:center;line-height:24px;">1</td>
+										</tr></table>
+									</td>
+									<td valign="top" style="padding:0 0 14px;font-size:15px;line-height:1.5;color:#4A443C;"><strong style="color:#1B1712;">List your property</strong><br>Add details, photos and amenities so tenants can find you.</td>
+								</tr>
+								<tr>
+									<td width="34" valign="top" style="padding:0 0 14px;">
+										<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+											<td style="width:24px;height:24px;background-color:#E6F3EC;border-radius:999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:12px;font-weight:800;color:#1D7A4F;text-align:center;line-height:24px;">2</td>
+										</tr></table>
+									</td>
+									<td valign="top" style="padding:0 0 14px;font-size:15px;line-height:1.5;color:#4A443C;"><strong style="color:#1B1712;">Create rooms &amp; beds</strong><br>Shared or private — set rent, deposits and availability.</td>
+								</tr>
+								<tr>
+									<td width="34" valign="top" style="padding:0;">
+										<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+											<td style="width:24px;height:24px;background-color:#E6F3EC;border-radius:999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:12px;font-weight:800;color:#1D7A4F;text-align:center;line-height:24px;">3</td>
+										</tr></table>
+									</td>
+									<td valign="top" style="padding:0;font-size:15px;line-height:1.5;color:#4A443C;"><strong style="color:#1B1712;">Receive applications</strong><br>Review tenants, approve viewings and sign leases — all in one place.</td>
+								</tr>
+							</table>
+
+							<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:30px 0 0;">
+								<tr>
+									<td style="border-radius:12px;background-color:#0F5B47;">
+										<a href="<%= appUrl %>/dashboard" style="display:inline-block;padding:15px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:12px;">List your first property</a>
+									</td>
+								</tr>
+							</table>
+
+						</td>
+					</tr>
+
+					<tr>
+						<td class="email-footer" style="padding:28px 36px 32px;border-top:1px solid #E9E3D7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:12px;line-height:1.6;color:#A29A8C;">
+							You're receiving this message because your owner verification was reviewed by our team.<br>
+							&copy; <%= year %> Housing &amp; Roommate Management Platform. All rights reserved.
+						</td>
+					</tr>
+
+				</table>
+
+			</td>
+		</tr>
+	</table>
 </body>
 </html>

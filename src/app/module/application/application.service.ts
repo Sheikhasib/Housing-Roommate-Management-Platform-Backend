@@ -455,7 +455,8 @@ const reviewApplication = async (
 			data: {
 				name: tenantProfile.name,
 				roomName: application.room.name,
-				reason: application.rejectionReason,
+				// the pre-review snapshot has a null reason - use the reviewer's
+				reason: payload.rejectionReason,
 			},
 		});
 
@@ -465,7 +466,7 @@ const reviewApplication = async (
 			title: isApproved ? "Application approved 🎉" : "Application rejected",
 			message: isApproved
 				? `Your application for "${application.room.name}" was approved. Pay the booking deposit to lock the room!`
-				: `Your application for "${application.room.name}" was rejected. Reason: ${application.rejectionReason || "not provided"}`,
+				: `Your application for "${application.room.name}" was rejected. Reason: ${payload.rejectionReason || "not provided"}`,
 			data: { applicationId, roomId: application.roomId },
 		});
 	}

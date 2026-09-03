@@ -95,3 +95,55 @@ export const auth = (...requiredRoles: Role[]) => {
 		next();
 	});
 };
+
+// optionalAuth() — for public endpoints that return a richer view to signed-in
+// owners/admins (e.g. property/room detail incl. drafts). A missing, invalid
+// or stale token NEVER rejects the request: the caller is simply treated as a
+// guest. Identity is checked on id + email + role only (not the display name,
+// which can change at any time and must not silently downgrade tokens).
+export const optionalAuth = catchAsync(
+	async (req: Request, _res: Response, next: NextFunction) => {
+		const token = req.cookies.accessToken
+			? req.cookies.accessToken
+			: req.headers.authorization?.startsWith("Bearer ")
+				? req.headers.authorization?.split(" ")[1]
+				: req.headers.authorization;
+
+		if (!token) {
+			return next();
+		}
+
+		const verifiedToken = jwtUtils.verifyToken(token, config.jwt_access_secret);
+
+		if (!verifiedToken.success) {
+			return next();
+		}
+
+		const { email, name, userId, role } = verifiedToken.data as JwtPayload;
+
+		const user = await prisma.user.findUnique({
+			where: { id: userId },
+		});
+
+		// blocked / deleted / stale-token users get the guest view
+		if (
+			!user ||
+			user.email !== email ||
+			user.role !== role ||
+			user.status === "BLOCKED" ||
+			user.isDeleted ||
+			user.deletedAt
+		) {
+			return next();
+		}
+
+		req.user = {
+			email,
+			name,
+			userId,
+			role,
+		};
+
+		next();
+	},
+);

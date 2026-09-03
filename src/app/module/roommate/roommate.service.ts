@@ -98,6 +98,7 @@ const getMyRoommateMatches = async (user: RequestUser) => {
 	// exclude myself & tenants I already paired with / already asked
 	const existingRelations = await prisma.roommateRequest.findMany({
 		where: {
+			isDeleted: false,
 			OR: [
 				{
 					senderId: myProfile.id,
@@ -128,37 +129,20 @@ const getMyRoommateMatches = async (user: RequestUser) => {
 		excludedIds.add(pair.tenantBId);
 	});
 
+	// one query for all candidates (any city or none). The ranking only depends
+	// on the score anyway, and SQL `not` would wrongly drop NULL-city tenants.
 	const candidates = await prisma.tenantProfile.findMany({
 		where: {
 			isDeleted: false,
 			lookingForRoommate: true,
 			id: { notIn: [...excludedIds] },
-			// prefer the same city when the tenant told us their preferred city
-			...(myProfile.preferredCity
-				? { preferredCity: myProfile.preferredCity }
-				: {}),
 		},
 		include: {
 			user: { select: { id: true, name: true, imageUrl: true } },
 		},
 	});
 
-	// also consider tenants in other cities (or with no city set) but rank them lower
-	const otherCandidates = myProfile.preferredCity
-		? await prisma.tenantProfile.findMany({
-				where: {
-					isDeleted: false,
-					lookingForRoommate: true,
-					id: { notIn: [...excludedIds] },
-					preferredCity: { not: myProfile.preferredCity },
-				},
-				include: {
-					user: { select: { id: true, name: true, imageUrl: true } },
-				},
-			})
-		: [];
-
-	const scoredCandidates = [...candidates, ...otherCandidates]
+	const scoredCandidates = candidates
 		.map((candidate) => ({
 			id: candidate.id,
 			name: candidate.name,
@@ -253,6 +237,36 @@ const sendRoommateRequest = async (
 	return request;
 };
 
+// Profile fields the counterparty may see before any acceptance — identical
+// to the /match card, so a pending request never leaks contact details.
+const trimRequestProfile = (profile: {
+	id: string;
+	name: string;
+	occupation: string | null;
+	bio: string | null;
+	preferredCity: string | null;
+	monthlyBudgetMax: number | null;
+	moveInDate: Date | null;
+	smoker: boolean;
+	petFriendly: boolean;
+	hasPets: boolean;
+	gender: string | null;
+	user: { imageUrl: string | null };
+}) => ({
+	id: profile.id,
+	name: profile.name,
+	imageUrl: profile.user.imageUrl,
+	occupation: profile.occupation,
+	bio: profile.bio,
+	preferredCity: profile.preferredCity,
+	monthlyBudgetMax: profile.monthlyBudgetMax,
+	moveInDate: profile.moveInDate,
+	smoker: profile.smoker,
+	petFriendly: profile.petFriendly,
+	hasPets: profile.hasPets,
+	gender: profile.gender,
+});
+
 // List requests I sent or received
 const getMyRoommateRequests = async (user: RequestUser, query: IQuery) => {
 	const myProfile = await getTenantProfile(user.userId);
@@ -291,8 +305,14 @@ const getMyRoommateRequests = async (user: RequestUser, query: IQuery) => {
 		where: { AND: andConditions },
 	});
 
+	const data = requests.map((request) => ({
+		...request,
+		sender: trimRequestProfile(request.sender),
+		receiver: trimRequestProfile(request.receiver),
+	}));
+
 	return {
-		data: requests,
+		data,
 		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
 	};
 };
@@ -330,12 +350,25 @@ const respondToRoommateRequest = async (
 	}
 
 	const transactionResult = await prisma.$transaction(async (tx) => {
-		const updatedRequest = await tx.roommateRequest.update({
-			where: { id: requestId },
+		// conditional write: only a still-PENDING request can be responded to,
+		// so two concurrent accepts can never both pass (second → 409 below)
+		const updatedCount = await tx.roommateRequest.updateMany({
+			where: { id: requestId, status: RoommateRequestStatus.PENDING },
 			data: {
 				status: payload.status as RoommateRequestStatus,
 				respondedAt: new Date(),
 			},
+		});
+
+		if (updatedCount.count === 0) {
+			throw new AppError(
+				httpStatus.CONFLICT,
+				"Roommate request is no longer pending. Please refresh and try again.",
+			);
+		}
+
+		const updatedRequest = await tx.roommateRequest.findUniqueOrThrow({
+			where: { id: requestId },
 		});
 
 		// acceptance creates the formal pair

@@ -1,23 +1,88 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Maintenance Update</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; color: #333; }
-      .container { max-width: 500px; margin: 40px auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-      .footer { margin-top: 30px; font-size: 12px; color: #888; }
-    </style>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="color-scheme" content="light dark">
+	<meta name="supported-color-schemes" content="light dark">
+	<title>Maintenance update — Housing &amp; Roommate</title>
+	<style>
+		body { margin: 0; padding: 0; word-spacing: normal; -webkit-text-size-adjust: 100%; }
+		.preheader { display: none !important; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0; }
+		@media (prefers-color-scheme: dark) {
+			.email-canvas { background-color: #171410 !important; }
+			.email-footer { color: #8b857b !important; }
+		}
+	</style>
 </head>
-<body>
-    <div class="container">
-      <h2>Maintenance update 🔧</h2>
-      <p>Hi <%= name %>, your maintenance request "<%= title %>" is now <strong><%= status %></strong>.</p>
-      <% if (resolutionNotes && resolutionNotes !== 'N/A') { %>
-        <p><strong>Notes:</strong> <%= resolutionNotes %></p>
-      <% } %>
-      <div class="footer">&copy; Housing & Roommate Management Platform. All rights reserved.</div>
-    </div>
+<body class="email-canvas" style="margin:0;padding:0;background-color:#F4F1EA;">
+	<span class="preheader" style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">There's an update on your maintenance request.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</span>
+
+	<%
+		var statusLabel = String(status).toLowerCase().replace(/_/g, " ");
+		var statusUpper = String(status).toUpperCase();
+		var isDone = statusUpper === "RESOLVED" || statusUpper === "CLOSED";
+		var badgeColor = isDone ? "#1D7A4F" : "#96660A";
+		var badgeBg = isDone ? "#E6F3EC" : "#FBF1DE";
+	%>
+
+	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F4F1EA;">
+		<tr>
+			<td align="center" style="padding:40px 16px 48px;">
+
+				<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;background-color:#FFFFFF;border:1px solid #E9E3D7;border-radius:16px;overflow:hidden;">
+
+					<tr>
+						<td style="padding:26px 36px;background-color:#0F5B47;border-radius:16px 16px 0 0;">
+							<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+								<tr>
+									<td style="width:30px;height:30px;background-color:#FFFFFF;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;font-weight:800;color:#0F5B47;text-align:center;line-height:30px;">H</td>
+									<td style="padding-left:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;font-weight:700;color:#FFFFFF;letter-spacing:-0.1px;">Housing &amp; Roommate</td>
+								</tr>
+							</table>
+						</td>
+					</tr>
+					<tr><td style="height:4px;background-color:#E8A33D;font-size:0;line-height:0;">&nbsp;</td></tr>
+
+					<tr>
+						<td style="padding:36px 36px 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+
+							<span style="display:inline-block;padding:6px 14px;background-color:#F0EDE6;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:#5B574E;">Maintenance</span>
+
+							<h1 style="margin:22px 0 0;font-size:27px;line-height:1.25;font-weight:800;letter-spacing:-0.6px;color:#1B1712;">Update on your request</h1>
+
+							<p style="margin:16px 0 0;font-size:15px;line-height:1.65;color:#4A443C;">Hi <%= name %>, there's movement on the maintenance request you reported:</p>
+
+							<div style="margin:24px 0 0;padding:18px 20px;background-color:#F8F5EF;border:1px solid #E9E3D7;border-radius:12px;">
+								<div style="font-size:11px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:#847C6F;">Request</div>
+								<div style="margin-top:6px;font-size:19px;font-weight:800;letter-spacing:-0.2px;color:#1B1712;"><%= title %></div>
+								<div style="margin-top:14px;">
+									<span style="display:inline-block;padding:5px 13px;background-color:<%= badgeBg %>;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:<%= badgeColor %>;"><%= statusLabel %></span>
+								</div>
+							</div>
+
+							<% if (typeof resolutionNotes !== "undefined" && resolutionNotes && resolutionNotes !== "N/A") { %>
+							<div style="margin:18px 0 0;padding:16px 18px;background-color:#F8F5EF;border-left:3px solid #E8A33D;border-radius:0 10px 10px 0;font-size:14px;line-height:1.6;color:#4A443C;">
+								<strong style="color:#1B1712;">Notes from your landlord:</strong> <%= resolutionNotes %>
+							</div>
+							<% } %>
+
+							<p style="margin:24px 0 0;font-size:15px;line-height:1.65;color:#4A443C;">You can follow the full history of this request from your dashboard at any time.</p>
+
+						</td>
+					</tr>
+
+					<tr>
+						<td class="email-footer" style="padding:28px 36px 32px;border-top:1px solid #E9E3D7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:12px;line-height:1.6;color:#A29A8C;">
+							You're receiving this message because you reported a maintenance issue on your rented room.<br>
+							&copy; <%= year %> Housing &amp; Roommate Management Platform. All rights reserved.
+						</td>
+					</tr>
+
+				</table>
+
+			</td>
+		</tr>
+	</table>
 </body>
 </html>
