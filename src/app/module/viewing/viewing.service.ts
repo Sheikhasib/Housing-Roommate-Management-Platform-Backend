@@ -8,6 +8,7 @@ import type { ViewingRequestWhereInput } from "../../../generated/prisma/models"
 import { prisma } from "../../lib/prisma";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
+import { writeAuditLog } from "../../utils/audit";
 import { createNotification } from "../../utils/notification";
 import type {
 	ICreateViewingRequestPayload,
@@ -19,8 +20,8 @@ const createViewingRequest = async (
 	payload: ICreateViewingRequestPayload,
 	user: RequestUser,
 ) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -32,6 +33,7 @@ const createViewingRequest = async (
 			id: payload.roomId,
 			isDeleted: false,
 			isPublished: true,
+			property: { isDeleted: false },
 		},
 		include: { property: { include: { owner: true } } },
 	});
@@ -46,6 +48,7 @@ const createViewingRequest = async (
 			tenantProfileId: tenantProfile.id,
 			roomId: room.id,
 			status: ViewingStatus.PENDING,
+			isDeleted: false,
 		},
 	});
 
@@ -80,8 +83,8 @@ const createViewingRequest = async (
 
 // TENANT: my viewing requests
 const getMyViewingRequests = async (user: RequestUser, query: IQuery) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -128,8 +131,8 @@ const getMyViewingRequests = async (user: RequestUser, query: IQuery) => {
 
 // OWNER: viewing requests for rooms of their properties
 const getOwnerViewingRequests = async (user: RequestUser, query: IQuery) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -203,8 +206,11 @@ const updateViewingStatus = async (
 	const isOwnerOfRoom =
 		user.role === "OWNER" &&
 		viewingRequest.room.property.ownerId ===
-			(await prisma.ownerProfile.findUnique({ where: { userId: user.userId } }))
-				?.id;
+			(
+				await prisma.ownerProfile.findFirst({
+					where: { userId: user.userId, isDeleted: false },
+				})
+			)?.id;
 
 	if (user.role === "TENANT") {
 		throw new AppError(
@@ -236,21 +242,39 @@ const updateViewingStatus = async (
 		);
 	}
 
-	const updatedRequest = await prisma.viewingRequest.update({
-		where: { id: requestId },
-		data: {
-			status: payload.status as ViewingStatus,
-			rejectionReason:
-				payload.status === ViewingStatus.REJECTED
-					? payload.rejectionReason
-					: null,
-			scheduledDateTime:
-				payload.status === ViewingStatus.APPROVED
-					? payload.scheduledDateTime
-						? new Date(payload.scheduledDateTime)
-						: viewingRequest.preferredDate
-					: undefined,
-		},
+	const updatedRequest = await prisma.$transaction(async (tx) => {
+		const updated = await tx.viewingRequest.update({
+			where: { id: requestId },
+			data: {
+				status: payload.status as ViewingStatus,
+				rejectionReason:
+					payload.status === ViewingStatus.REJECTED
+						? payload.rejectionReason
+						: null,
+				scheduledDateTime:
+					payload.status === ViewingStatus.APPROVED
+						? payload.scheduledDateTime
+							? new Date(payload.scheduledDateTime)
+							: viewingRequest.preferredDate
+						: undefined,
+			},
+		});
+
+		await writeAuditLog(
+			{
+				action: "VIEWING_STATUS_UPDATED",
+				entity: "ViewingRequest",
+				entityId: requestId,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { status: viewingRequest.status },
+				after: { status: payload.status },
+			},
+			tx,
+		);
+
+		return updated;
 	});
 
 	// notify the tenant about the decision
@@ -272,8 +296,8 @@ const updateViewingStatus = async (
 
 // TENANT: cancel my own pending/approved viewing request
 const cancelViewingRequest = async (requestId: string, user: RequestUser) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -299,10 +323,30 @@ const cancelViewingRequest = async (requestId: string, user: RequestUser) => {
 		);
 	}
 
-	return prisma.viewingRequest.update({
-		where: { id: requestId },
-		data: { status: ViewingStatus.CANCELLED },
+	const updatedRequest = await prisma.$transaction(async (tx) => {
+		const updated = await tx.viewingRequest.update({
+			where: { id: requestId },
+			data: { status: ViewingStatus.CANCELLED },
+		});
+
+		await writeAuditLog(
+			{
+				action: "VIEWING_CANCELLED",
+				entity: "ViewingRequest",
+				entityId: requestId,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { status: viewingRequest.status },
+				after: { status: ViewingStatus.CANCELLED },
+			},
+			tx,
+		);
+
+		return updated;
 	});
+
+	return updatedRequest;
 };
 
 export const ViewingServices = {

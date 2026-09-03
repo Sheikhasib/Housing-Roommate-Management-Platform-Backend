@@ -139,7 +139,12 @@ const getPublicRooms = async (query: IQuery) => {
 	const sortOrder = query.sortOrder ? query.sortOrder : "asc";
 
 	const andConditions: RoomWhereInput[] = [
-		{ isDeleted: false, isPublished: true },
+		{
+			isDeleted: false,
+			isPublished: true,
+			// rooms of a soft-deleted property must not surface publicly
+			property: { isDeleted: false },
+		},
 		{ status: { notIn: [RoomStatus.OCCUPIED, RoomStatus.MAINTENANCE] } },
 	];
 
@@ -287,9 +292,9 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
 	}
 
-	// guest / tenant: only published rooms are visible
+	// guest / tenant: only published rooms inside a live property are visible
 	if (!viewer || viewer.role === "TENANT") {
-		if (!room.isPublished) {
+		if (!room.isPublished || room.property.isDeleted) {
 			throw new AppError(httpStatus.NOT_FOUND, "Room not found");
 		}
 		return room;

@@ -19,8 +19,8 @@ import type { ICreateUtilityBillPayload } from "./invoice.interface";
 
 // TENANT: invoices belonging to my leases
 const getMyInvoices = async (user: RequestUser, query: IQuery) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -76,8 +76,8 @@ const getRoomInvoices = async (
 	roomId: string,
 	query: IQuery,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -140,8 +140,8 @@ const createUtilityBill = async (
 	payload: ICreateUtilityBillPayload,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -251,8 +251,8 @@ const createUtilityBill = async (
 
 // TENANT: pay one of my invoices via bKash
 const payInvoice = async (invoiceId: string, user: RequestUser) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {

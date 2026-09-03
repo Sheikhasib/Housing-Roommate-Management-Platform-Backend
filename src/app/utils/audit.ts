@@ -14,20 +14,25 @@ type TAuditLogData = {
 };
 
 // Append-only audit trail for critical actions (status changes, role changes,
-// approvals, refunds, etc).
-export const writeAuditLog = async ({
-	action,
-	entity,
-	entityId,
-	actorId,
-	actorEmail,
-	actorRole,
-	before,
-	after,
-	ipAddress,
-	userAgent,
-}: TAuditLogData) => {
-	return prisma.auditLog.create({
+// approvals, refunds, etc). Pass the active transaction client (tx) so the
+// audit entry commits atomically with the mutation it describes.
+export const writeAuditLog = async (
+	{
+		action,
+		entity,
+		entityId,
+		actorId,
+		actorEmail,
+		actorRole,
+		before,
+		after,
+		ipAddress,
+		userAgent,
+	}: TAuditLogData,
+	tx?: any,
+) => {
+	const db = tx ?? prisma;
+	return db.auditLog.create({
 		data: {
 			action,
 			entity,

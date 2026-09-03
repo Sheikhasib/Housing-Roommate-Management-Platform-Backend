@@ -330,8 +330,8 @@ const paymentCallback = async (query: Record<string, any>) => {
 
 // TENANT: payments I made
 const getMyPayments = async (user: RequestUser, query: IQuery) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -464,8 +464,8 @@ const getSinglePayment = async (paymentId: string, user: RequestUser) => {
 		? payment.application.tenantProfileId
 		: payment.invoice?.lease.tenantProfileId;
 
-	const payerProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const payerProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	const isPayer = payerProfile && payerProfile.id === tenantProfileId;

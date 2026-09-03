@@ -55,8 +55,8 @@ const applyForRoom = async (
 	user: RequestUser,
 ) => {
 	const transactionResult = await prisma.$transaction(async (tx) => {
-		const tenantProfile = await tx.tenantProfile.findUnique({
-			where: { userId: user.userId },
+		const tenantProfile = await tx.tenantProfile.findFirst({
+			where: { userId: user.userId, isDeleted: false },
 		});
 
 		if (!tenantProfile) {
@@ -64,7 +64,12 @@ const applyForRoom = async (
 		}
 
 		const room = await tx.room.findFirst({
-			where: { id: payload.roomId, isDeleted: false, isPublished: true },
+			where: {
+				id: payload.roomId,
+				isDeleted: false,
+				isPublished: true,
+				property: { isDeleted: false },
+			},
 		});
 
 		if (!room) {
@@ -169,8 +174,8 @@ const applyForRoom = async (
 
 // TENANT: my applications
 const getMyApplications = async (user: RequestUser, query: IQuery) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -225,8 +230,8 @@ const getMyApplications = async (user: RequestUser, query: IQuery) => {
 
 // OWNER: applications on their rooms
 const getOwnerApplications = async (user: RequestUser, query: IQuery) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -347,13 +352,15 @@ const reviewApplication = async (
 	payload: IReviewApplicationPayload,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
 		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
 	}
+
+	const isApproved = payload.status === "APPROVED";
 
 	const transactionResult = await prisma.$transaction(async (tx) => {
 		const application = await tx.application.findUnique({
@@ -412,23 +419,25 @@ const reviewApplication = async (
 			},
 		});
 
+		// audit trail commits atomically with the status change
+		await writeAuditLog(
+			{
+				action: isApproved ? "APPLICATION_APPROVED" : "APPLICATION_REJECTED",
+				entity: "Application",
+				entityId: applicationId,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { status: application.status },
+				after: { status: payload.status },
+			},
+			tx,
+		);
+
 		return { updatedApplication, application };
 	});
 
 	const { updatedApplication, application } = transactionResult;
-	const isApproved = payload.status === "APPROVED";
-
-	// audit trail of the decision
-	await writeAuditLog({
-		action: isApproved ? "APPLICATION_APPROVED" : "APPLICATION_REJECTED",
-		entity: "Application",
-		entityId: applicationId,
-		actorId: user.userId,
-		actorEmail: user.email,
-		actorRole: user.role,
-		before: { status: application.status },
-		after: { status: payload.status },
-	});
 
 	// notify + email the tenant
 	const tenantProfile = await prisma.tenantProfile.findUnique({
@@ -465,8 +474,8 @@ const reviewApplication = async (
 
 // TENANT: pay the booking deposit for an APPROVED application (bKash)
 const payDeposit = async (applicationId: string, user: RequestUser) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -611,6 +620,21 @@ const cancelApplication = async (applicationId: string, user: RequestUser) => {
 				reviewedAt: new Date(),
 			},
 		});
+
+		// cancellation is a status change - audit it atomically with the update
+		await writeAuditLog(
+			{
+				action: "APPLICATION_CANCELLED",
+				entity: "Application",
+				entityId: applicationId,
+				actorId: isAdmin ? user.userId : application.tenantProfile.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { status: application.status },
+				after: { status: ApplicationStatus.CANCELLED },
+			},
+			tx,
+		);
 
 		return updatedApplication;
 	});

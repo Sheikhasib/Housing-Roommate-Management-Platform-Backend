@@ -33,7 +33,7 @@ router.post(
 );
 
 // Logout route
-router.post("/logout", auth(), AuthController.logoutUser);
+router.post("/logout", authRateLimiter, auth(), AuthController.logoutUser);
 
 // Get me route
 router.get(
@@ -43,7 +43,7 @@ router.get(
 );
 
 // Refresh token route
-router.post("/refresh-token", AuthController.refreshToken);
+router.post("/refresh-token", authRateLimiter, AuthController.refreshToken);
 
 // Google Login route
 router.post(

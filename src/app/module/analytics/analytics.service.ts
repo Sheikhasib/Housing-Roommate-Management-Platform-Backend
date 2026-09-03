@@ -14,8 +14,8 @@ import httpStatus from "http-status";
 
 // TENANT analytics
 const getTenantAnalytics = async (user: RequestUser) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -115,8 +115,8 @@ const getTenantAnalytics = async (user: RequestUser) => {
 
 // OWNER analytics
 const getOwnerAnalytics = async (user: RequestUser) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {

@@ -17,8 +17,8 @@ import type {
 
 // Resolve the tenant profile of a logged-in TENANT user
 const getTenantProfile = async (userId: string) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -217,6 +217,7 @@ const sendRoommateRequest = async (
 	// prevent duplicates (pending or accepted requests are not allowed twice)
 	const existingRequest = await prisma.roommateRequest.findFirst({
 		where: {
+			isDeleted: false,
 			status: { not: RoommateRequestStatus.DECLINED },
 			OR: [
 				{ senderId: senderProfile.id, receiverId: receiverProfile.id },

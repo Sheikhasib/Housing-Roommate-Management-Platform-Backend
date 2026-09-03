@@ -21,8 +21,8 @@ import { uploadFileToCloudinary } from "../../utils/cloudinaryUpload";
 
 // TENANT: my leases (active + history)
 const getMyLeases = async (user: RequestUser, query: IQuery) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -76,8 +76,8 @@ const getMyLeases = async (user: RequestUser, query: IQuery) => {
 
 // OWNER: leases for their rooms
 const getOwnerLeases = async (user: RequestUser, query: IQuery) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -247,6 +247,21 @@ const terminateLease = async (
 			data: { status: InvoiceStatus.CANCELLED },
 		});
 
+		// audit trail commits atomically with the termination
+		await writeAuditLog(
+			{
+				action: "LEASE_TERMINATED",
+				entity: "Lease",
+				entityId: leaseId,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { status: lease.status },
+				after: { status: LeaseStatus.TERMINATED, reason },
+			},
+			tx,
+		);
+
 		return { updatedLease, lease };
 	});
 
@@ -267,30 +282,39 @@ const terminateLease = async (
 			reason: reason,
 		});
 
-		await prisma.payment.update({
-			where: { id: payment.id },
-			data: {
-				status: PaymentStatus.REFUNDED,
-				refundTrxId: (refundResult as any)?.refundTrxID || null,
-				refundAt:
-					(refundResult as any)?.completedTime || new Date().toISOString(),
-				refundAmount: payment.amount,
-				refundReason: reason,
-				gatwayResponse: refundResult as any,
-			},
+		await prisma.$transaction(async (tx) => {
+			await tx.payment.update({
+				where: { id: payment.id },
+				data: {
+					status: PaymentStatus.REFUNDED,
+					refundTrxId: (refundResult as any)?.refundTrxID || null,
+					refundAt:
+						(refundResult as any)?.completedTime || new Date().toISOString(),
+					refundAmount: payment.amount,
+					refundReason: reason,
+					gatwayResponse: refundResult as any,
+				},
+			});
+
+			// money moved out - keep an atomic audit trail of the refund too
+			await writeAuditLog(
+				{
+					action: "PAYMENT_REFUNDED",
+					entity: "Payment",
+					entityId: payment.id,
+					actorId: user.userId,
+					actorEmail: user.email,
+					actorRole: user.role,
+					after: {
+						status: PaymentStatus.REFUNDED,
+						amount: payment.amount.toString(),
+						reason,
+					},
+				},
+				tx,
+			);
 		});
 	}
-
-	// audit trail
-	await writeAuditLog({
-		action: "LEASE_TERMINATED",
-		entity: "Lease",
-		entityId: leaseId,
-		actorId: user.userId,
-		actorEmail: user.email,
-		actorRole: user.role,
-		after: { status: LeaseStatus.TERMINATED, reason },
-	});
 
 	await createNotification({
 		userId: lease.tenantProfile.userId,
@@ -346,8 +370,11 @@ const uploadLeaseDocument = async (
 	const isTenant = lease.tenantProfile.userId === user.userId;
 	const isOwner =
 		lease.room.property.ownerId ===
-		(await prisma.ownerProfile.findUnique({ where: { userId: user.userId } }))
-			?.id;
+		(
+			await prisma.ownerProfile.findFirst({
+				where: { userId: user.userId, isDeleted: false },
+			})
+		)?.id;
 	const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
 
 	if (!isTenant && !isOwner && !isAdmin) {
@@ -381,8 +408,8 @@ const removeLeaseDocument = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Lease not found");
 	}
 
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 	const isOwner = lease.roomId
 		? await prisma.room.findFirst({

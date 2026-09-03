@@ -9,6 +9,7 @@
         "start": "tsx src/server.ts",
         "prisma:generate": "node node_modules/prisma/build/index.js generate",
         "prisma:migrate": "node node_modules/prisma/build/index.js migrate dev",
+        "prisma:migrate:deploy": "node node_modules/prisma/build/index.js migrate deploy",
         "postinstall": "node node_modules/prisma/build/index.js generate",
         "test": "echo \"Error: no test specified\" && exit 1",
         "format:check": "npx @biomejs/biome format ./src",

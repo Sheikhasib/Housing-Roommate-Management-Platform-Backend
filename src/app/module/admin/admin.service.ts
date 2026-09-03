@@ -160,10 +160,16 @@ const getAllUsers = async (query: IQuery) => {
 					preferredCity: true,
 					lookingForRoommate: true,
 					occupation: true,
+					isDeleted: true,
 				},
 			},
 			ownerProfile: {
-				select: { id: true, verificationStatus: true, companyName: true },
+				select: {
+					id: true,
+					verificationStatus: true,
+					companyName: true,
+					isDeleted: true,
+				},
 			},
 			_count: { select: { notifications: true } },
 		},
@@ -171,8 +177,36 @@ const getAllUsers = async (query: IQuery) => {
 
 	const total = await prisma.user.count({ where: { AND: andConditions } });
 
+	// never surface the profile of a soft-deleted user account
+	const data = users.map((user) => {
+		const { tenantProfile, ownerProfile, ...rest } = user;
+
+		return {
+			...rest,
+			tenantProfile: tenantProfile?.isDeleted
+				? null
+				: tenantProfile
+					? {
+							id: tenantProfile.id,
+							preferredCity: tenantProfile.preferredCity,
+							lookingForRoommate: tenantProfile.lookingForRoommate,
+							occupation: tenantProfile.occupation,
+						}
+					: null,
+			ownerProfile: ownerProfile?.isDeleted
+				? null
+				: ownerProfile
+					? {
+							id: ownerProfile.id,
+							verificationStatus: ownerProfile.verificationStatus,
+							companyName: ownerProfile.companyName,
+						}
+					: null,
+		};
+	});
+
 	return {
-		data: users,
+		data,
 		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
 	};
 };
@@ -206,21 +240,30 @@ const updateUserStatus = async (
 		);
 	}
 
-	const updatedUser = await prisma.user.update({
-		where: { id: userId },
-		data: { status: payload.status as UserStatus },
-		omit: { password: true },
-	});
+	const updatedUser = await prisma.$transaction(async (tx) => {
+		const updated = await tx.user.update({
+			where: { id: userId },
+			data: { status: payload.status as UserStatus },
+			omit: { password: true },
+		});
 
-	await writeAuditLog({
-		action: payload.status === "BLOCKED" ? "USER_BLOCKED" : "USER_UNBLOCKED",
-		entity: "User",
-		entityId: userId,
-		actorId: admin.userId,
-		actorEmail: admin.email,
-		actorRole: admin.role,
-		before: { status: targetUser.status },
-		after: { status: payload.status, reason: payload.reason },
+		// status change + audit commit atomically
+		await writeAuditLog(
+			{
+				action:
+					payload.status === "BLOCKED" ? "USER_BLOCKED" : "USER_UNBLOCKED",
+				entity: "User",
+				entityId: userId,
+				actorId: admin.userId,
+				actorEmail: admin.email,
+				actorRole: admin.role,
+				before: { status: targetUser.status },
+				after: { status: payload.status, reason: payload.reason },
+			},
+			tx,
+		);
+
+		return updated;
 	});
 
 	return updatedUser;
@@ -298,18 +341,22 @@ const updateUserRole = async (
 			}
 		}
 
-		return updatedUser;
-	});
+		// role change + audit commit atomically
+		await writeAuditLog(
+			{
+				action: "USER_ROLE_CHANGED",
+				entity: "User",
+				entityId: userId,
+				actorId: admin.userId,
+				actorEmail: admin.email,
+				actorRole: admin.role,
+				before: { role: targetUser.role },
+				after: { role: payload.role, reason: payload.reason },
+			},
+			tx,
+		);
 
-	await writeAuditLog({
-		action: "USER_ROLE_CHANGED",
-		entity: "User",
-		entityId: userId,
-		actorId: admin.userId,
-		actorEmail: admin.email,
-		actorRole: admin.role,
-		before: { role: targetUser.role },
-		after: { role: payload.role, reason: payload.reason },
+		return updatedUser;
 	});
 
 	return transactionResult;

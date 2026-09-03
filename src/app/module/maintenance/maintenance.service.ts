@@ -4,12 +4,14 @@ import {
 	MaintenanceStatus,
 	NotificationType,
 	Role,
+	UserStatus,
 } from "../../../generated/prisma/enums";
 import type { IQuery } from "../../interfaces";
 import type { MaintenanceRequestWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
+import { writeAuditLog } from "../../utils/audit";
 import { createNotification } from "../../utils/notification";
 import { sendTemplateEmail } from "../../utils/email";
 import { uploadFileToCloudinary } from "../../utils/cloudinaryUpload";
@@ -23,8 +25,8 @@ const createMaintenanceRequest = async (
 	payload: ICreateMaintenanceRequestPayload,
 	user: RequestUser,
 ) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -78,8 +80,8 @@ const createMaintenanceRequest = async (
 
 // TENANT: my maintenance requests
 const getMyMaintenanceRequests = async (user: RequestUser, query: IQuery) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!tenantProfile) {
@@ -127,8 +129,8 @@ const getOwnerMaintenanceRequests = async (
 	user: RequestUser,
 	query: IQuery,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -253,27 +255,65 @@ const updateMaintenanceStatus = async (
 		}
 	}
 
-	const updatedRequest = await prisma.maintenanceRequest.update({
-		where: { id: requestId },
-		data: {
-			status: next,
-			assignedTo:
-				next === MaintenanceStatus.ASSIGNED
-					? payload.assignedTo || user.userId
-					: maintenanceRequest.assignedTo,
-			assignedAt:
-				next === MaintenanceStatus.ASSIGNED
-					? new Date()
-					: maintenanceRequest.assignedAt,
-			resolutionNotes:
-				next === MaintenanceStatus.RESOLVED || next === MaintenanceStatus.CLOSED
-					? payload.resolutionNotes || maintenanceRequest.resolutionNotes
-					: maintenanceRequest.resolutionNotes,
-			resolvedAt:
-				next === MaintenanceStatus.RESOLVED
-					? new Date()
-					: maintenanceRequest.resolvedAt,
-		},
+	// when assigning, the assignee must be a real, non-deleted staff user
+	if (next === MaintenanceStatus.ASSIGNED && payload.assignedTo) {
+		const assignee = await prisma.user.findFirst({
+			where: {
+				id: payload.assignedTo,
+				isDeleted: false,
+				status: { not: UserStatus.BLOCKED },
+				role: { in: [Role.OWNER, Role.ADMIN, Role.SUPER_ADMIN] },
+			},
+		});
+
+		if (!assignee) {
+			throw new AppError(
+				httpStatus.BAD_REQUEST,
+				"assignedTo must reference an existing staff user",
+			);
+		}
+	}
+
+	const updatedRequest = await prisma.$transaction(async (tx) => {
+		const updated = await tx.maintenanceRequest.update({
+			where: { id: requestId },
+			data: {
+				status: next,
+				assignedTo:
+					next === MaintenanceStatus.ASSIGNED
+						? payload.assignedTo || user.userId
+						: maintenanceRequest.assignedTo,
+				assignedAt:
+					next === MaintenanceStatus.ASSIGNED
+						? new Date()
+						: maintenanceRequest.assignedAt,
+				resolutionNotes:
+					next === MaintenanceStatus.RESOLVED ||
+					next === MaintenanceStatus.CLOSED
+						? payload.resolutionNotes || maintenanceRequest.resolutionNotes
+						: maintenanceRequest.resolutionNotes,
+				resolvedAt:
+					next === MaintenanceStatus.RESOLVED
+						? new Date()
+						: maintenanceRequest.resolvedAt,
+			},
+		});
+
+		await writeAuditLog(
+			{
+				action: "MAINTENANCE_STATUS_UPDATED",
+				entity: "MaintenanceRequest",
+				entityId: requestId,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { status: current },
+				after: { status: next, assignedTo: updated.assignedTo },
+			},
+			tx,
+		);
+
+		return updated;
 	});
 
 	// notify the tenant who raised it
@@ -322,8 +362,8 @@ const uploadMaintenanceImage = async (
 	}
 
 	const isTenant = maintenanceRequest.tenantProfile.userId === user.userId;
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 	const isOwner = maintenanceRequest.room.property.ownerId === ownerProfile?.id;
 	const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;

@@ -64,31 +64,41 @@ const verifyOwnerProfile = async (
 		);
 	}
 
-	const updatedOwnerProfile = await prisma.ownerProfile.update({
-		where: { id: ownerProfileId },
-		data: {
-			verificationStatus,
-			rejectionReason:
-				verificationStatus === OwnerVerificationStatus.REJECTED
-					? rejectionReason
-					: null,
-			reviewedBy: reviewer.userId,
-			reviewedAt: new Date(),
-		},
-	});
-
 	const isApproved = verificationStatus === OwnerVerificationStatus.APPROVED;
 
-	// audit trail of the decision
-	await writeAuditLog({
-		action: isApproved ? "OWNER_APPROVED" : "OWNER_REJECTED",
-		entity: "OwnerProfile",
-		entityId: ownerProfileId,
-		actorId: reviewer.userId,
-		actorEmail: reviewer.email,
-		actorRole: reviewer.role,
-		before: { verificationStatus: existingOwnerProfile.verificationStatus },
-		after: { verificationStatus },
+	// status change + audit commit atomically so the decision is never un-logged
+	const updatedOwnerProfile = await prisma.$transaction(async (tx) => {
+		const updated = await tx.ownerProfile.update({
+			where: { id: ownerProfileId },
+			data: {
+				verificationStatus,
+				rejectionReason:
+					verificationStatus === OwnerVerificationStatus.REJECTED
+						? rejectionReason
+						: null,
+				reviewedBy: reviewer.userId,
+				reviewedAt: new Date(),
+			},
+		});
+
+		// audit trail of the decision
+		await writeAuditLog(
+			{
+				action: isApproved ? "OWNER_APPROVED" : "OWNER_REJECTED",
+				entity: "OwnerProfile",
+				entityId: ownerProfileId,
+				actorId: reviewer.userId,
+				actorEmail: reviewer.email,
+				actorRole: reviewer.role,
+				before: {
+					verificationStatus: existingOwnerProfile.verificationStatus,
+				},
+				after: { verificationStatus },
+			},
+			tx,
+		);
+
+		return updated;
 	});
 
 	// email + in-app notification for the owner
@@ -128,8 +138,8 @@ const uploadVerificationDocuments = async (
 		throw new AppError(httpStatus.BAD_REQUEST, "No documents uploaded");
 	}
 
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -159,8 +169,8 @@ const uploadVerificationDocuments = async (
 
 // Allow a rejected owner to re-submit their profile for verification
 const requestVerification = async (user: RequestUser) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -192,8 +202,8 @@ const updateMyOwnerProfile = async (
 	payload: IUpdateOwnerProfilePayload,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {
@@ -210,8 +220,8 @@ const updateMyOwnerProfile = async (
 
 // Get my owner profile
 const getMyOwnerProfile = async (user: RequestUser) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 		include: { user: { omit: { password: true } } },
 	});
 
@@ -291,8 +301,8 @@ const removeVerificationDocument = async (
 	user: RequestUser,
 	publicId: string,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findUnique({
-		where: { userId: user.userId },
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!ownerProfile) {

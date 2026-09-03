@@ -9,8 +9,8 @@ const updateMyTenantProfile = async (
 	payload: IUpdateTenantProfilePayload,
 	user: RequestUser,
 ) => {
-	const existingTenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const existingTenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 	});
 
 	if (!existingTenantProfile) {
@@ -42,8 +42,8 @@ const updateMyTenantProfile = async (
 
 // Get my tenant profile together with the linked auth user summary
 const getMyTenantProfile = async (user: RequestUser) => {
-	const tenantProfile = await prisma.tenantProfile.findUnique({
-		where: { userId: user.userId },
+	const tenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
 		include: {
 			user: {
 				omit: {

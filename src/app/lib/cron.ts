@@ -6,6 +6,7 @@ import {
 	LeaseStatus,
 } from "../../generated/prisma/enums";
 import { prisma } from "./prisma";
+import { writeAuditLog } from "../utils/audit";
 import { recalculateRoomStatus } from "../utils/roomStatus";
 
 // Applications that stay PENDING for longer than 14 days are auto-expired so
@@ -13,18 +14,43 @@ import { recalculateRoomStatus } from "../utils/roomStatus";
 export const expirePendingApplications = async () => {
 	const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
-	const result = await prisma.application.updateMany({
+	const staleApplications = await prisma.application.findMany({
 		where: {
 			status: ApplicationStatus.PENDING,
 			isDeleted: false,
 			createdAt: { lt: cutoff },
 		},
-		data: { status: ApplicationStatus.EXPIRED },
+		select: { id: true },
 	});
 
-	if (result.count > 0) {
-		console.log(`Cron: expired ${result.count} stale pending application(s).`);
+	if (staleApplications.length === 0) {
+		return;
 	}
+
+	await prisma.$transaction(async (tx) => {
+		for (const application of staleApplications) {
+			await tx.application.update({
+				where: { id: application.id },
+				data: { status: ApplicationStatus.EXPIRED },
+			});
+
+			await writeAuditLog(
+				{
+					action: "APPLICATION_EXPIRED",
+					entity: "Application",
+					entityId: application.id,
+					actorRole: "SYSTEM",
+					before: { status: ApplicationStatus.PENDING },
+					after: { status: ApplicationStatus.EXPIRED },
+				},
+				tx,
+			);
+		}
+	});
+
+	console.log(
+		`Cron: expired ${staleApplications.length} stale pending application(s).`,
+	);
 };
 
 // Runs daily: creates any RENT invoices that are due but not yet generated for
@@ -110,6 +136,19 @@ export const finalizeExpiredLeases = async () => {
 				where: { id: lease.id },
 				data: { status: LeaseStatus.COMPLETED },
 			});
+
+			// audit trail of the automatic completion (system actor)
+			await writeAuditLog(
+				{
+					action: "LEASE_COMPLETED",
+					entity: "Lease",
+					entityId: lease.id,
+					actorRole: "SYSTEM",
+					before: { status: LeaseStatus.ACTIVE },
+					after: { status: LeaseStatus.COMPLETED },
+				},
+				tx,
+			);
 
 			// release the occupied bed, if the room still counts it
 			if (room && room.occupiedBeds > 0) {
