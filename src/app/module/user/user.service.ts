@@ -1,3 +1,4 @@
+import type { UploadApiResponse } from "cloudinary";
 import httpStatus from "http-status";
 import { prisma } from "../../lib/prisma";
 import { AppError } from "../../utils/AppError";
@@ -17,7 +18,7 @@ const uploadProfileImage = async (buffer: Buffer, userId: string) => {
 		},
 	});
 
-	let cloudinaryResult;
+	let cloudinaryResult: UploadApiResponse;
 	try {
 		cloudinaryResult = await uploadFileToCloudinary(buffer, "user-profiles");
 	} catch (error) {

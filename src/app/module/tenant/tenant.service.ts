@@ -17,6 +17,11 @@ const updateMyTenantProfile = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Tenant Profile Not Found");
 	}
 
+	// nothing provided: skip the no-op write (it would still bump updatedAt)
+	if (Object.keys(payload).length === 0) {
+		return existingTenantProfile;
+	}
+
 	const updatedTenantProfile = await prisma.tenantProfile.update({
 		where: { id: existingTenantProfile.id },
 		data: {
