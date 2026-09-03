@@ -234,7 +234,20 @@ export const executeBkashPayment = async (paymentID: string) => {
 	return executePaymentResult;
 };
 
-// Issue a refund against an already paid transaction.
+// The gateway call got no definitive answer (timeout, dropped connection,
+// unparseable response). The request may still have been processed by bKash,
+// so callers must reconcile the payment instead of blindly retrying.
+export class BkashAmbiguousError extends Error {
+	constructor(message: string, options?: { cause?: unknown }) {
+		super(message, options);
+		this.name = "BkashAmbiguousError";
+	}
+}
+
+// Issue a refund against an already paid transaction. A definitive gateway
+// rejection throws AppError (the refund definitely did not happen, safe to
+// retry); an undeterminable outcome throws BkashAmbiguousError (the payment
+// must be reconciled before any retry).
 export const refundBkashPayment = async ({
 	paymentID,
 	trxID,
@@ -257,36 +270,65 @@ export const refundBkashPayment = async ({
 		);
 	}
 
-	const refundPaymentResponse = await fetch(
-		`${config.bkash_base_url}/tokenized/checkout/payment/refund`,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Accept: "application/json",
-				Authorization: `Bearer ${bKashIdToken}`,
-				"X-App-Key": config.bkash_app_key,
+	try {
+		const refundPaymentResponse = await fetch(
+			`${config.bkash_base_url}/tokenized/checkout/payment/refund`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/json",
+					Authorization: `Bearer ${bKashIdToken}`,
+					"X-App-Key": config.bkash_app_key,
+				},
+				body: JSON.stringify({
+					paymentID,
+					trxID,
+					amount,
+					sku,
+					reason,
+				}),
+				// a hung gateway call must surface as an error instead of
+				// blocking the caller forever
+				signal: AbortSignal.timeout(30_000),
 			},
-			body: JSON.stringify({
-				paymentID,
-				trxID,
-				amount,
-				sku,
-				reason,
-			}),
-		},
-	);
+		);
 
-	const refundPaymentResult = await refundPaymentResponse.json();
+		const refundPaymentResult = await refundPaymentResponse.json();
 
-	console.log({ bKashRefundPaymentResult: refundPaymentResult });
+		console.log({ bKashRefundPaymentResult: refundPaymentResult });
 
-	if (!refundPaymentResponse.ok) {
-		throw new AppError(
-			httpStatus.BAD_GATEWAY,
-			refundPaymentResult.statusMessage || "Failed to refund bKash payment",
+		if (!refundPaymentResponse.ok) {
+			console.error("bKash refund payment failed:", refundPaymentResult);
+			throw new AppError(
+				httpStatus.BAD_GATEWAY,
+				refundPaymentResult.statusMessage || "Failed to refund bKash payment",
+			);
+		}
+
+		// bKash answers HTTP 200 with a business status code; only "0000" is success
+		if (
+			refundPaymentResult.statusCode &&
+			refundPaymentResult.statusCode !== "0000"
+		) {
+			console.error("bKash refund payment rejected:", refundPaymentResult);
+			throw new AppError(
+				httpStatus.BAD_GATEWAY,
+				refundPaymentResult.statusMessage || "Failed to refund bKash payment",
+			);
+		}
+
+		return refundPaymentResult;
+	} catch (error) {
+		if (error instanceof AppError) {
+			throw error;
+		}
+		// timeout / network failure / unparseable body: the request may still
+		// have reached bKash, so the outcome is unknown
+		console.error("bKash refund outcome unknown:", error);
+		throw new BkashAmbiguousError(
+			"bKash refund outcome could not be determined",
+			{ cause: error },
 		);
 	}
-
-	return refundPaymentResult;
 };

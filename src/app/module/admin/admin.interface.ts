@@ -9,3 +9,9 @@ export interface IUpdateUserRolePayload {
 	role: Role;
 	reason?: string;
 }
+
+export interface IResolvePendingRefundPayload {
+	outcome: "REFUNDED" | "NOT_REFUNDED";
+	refundTrxId?: string;
+	note?: string;
+}

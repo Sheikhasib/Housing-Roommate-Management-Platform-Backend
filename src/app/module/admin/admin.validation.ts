@@ -13,7 +13,17 @@ const UpdateUserRoleZodSchema = z.object({
 	reason: z.string("Not a string.").optional(),
 });
 
+const ResolvePendingRefundZodSchema = z.object({
+	outcome: z.enum(
+		["REFUNDED", "NOT_REFUNDED"],
+		"Outcome must be REFUNDED or NOT_REFUNDED",
+	),
+	refundTrxId: z.string("Not a string.").optional(),
+	note: z.string("Not a string.").optional(),
+});
+
 export const AdminValidation = {
 	UpdateUserStatusZodSchema,
 	UpdateUserRoleZodSchema,
+	ResolvePendingRefundZodSchema,
 };

@@ -29,6 +29,7 @@ const cancellableApplicationStatuses: ApplicationStatus[] = [
 const nonRefundablePaymentStatuses: PaymentStatus[] = [
 	PaymentStatus.PROCESSING,
 	PaymentStatus.PAID,
+	PaymentStatus.REFUND_PENDING,
 	PaymentStatus.REFUNDED,
 ];
 

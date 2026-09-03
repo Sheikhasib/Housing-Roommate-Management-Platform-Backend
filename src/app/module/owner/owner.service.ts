@@ -309,7 +309,16 @@ const removeVerificationDocument = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
 	}
 
-	const documents = ((ownerProfile.documents as TDocument[]) || []).filter(
+	const existingDocuments = (ownerProfile.documents as TDocument[]) || [];
+	const targetDocument = existingDocuments.find(
+		(doc) => doc.publicId === publicId,
+	);
+
+	if (!targetDocument) {
+		throw new AppError(httpStatus.NOT_FOUND, "Document not found");
+	}
+
+	const documents = existingDocuments.filter(
 		(doc) => doc.publicId !== publicId,
 	);
 
@@ -318,6 +327,7 @@ const removeVerificationDocument = async (
 		data: { documents: documents as any },
 	});
 
+	// the asset belonged to this profile, so it is safe to purge from cloudinary
 	await deleteFromCloudinary(publicId);
 
 	return documents;

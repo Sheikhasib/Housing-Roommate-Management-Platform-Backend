@@ -11,6 +11,7 @@ import {
 	uploadFileToCloudinary,
 } from "../../utils/cloudinaryUpload";
 import { getVerifiedOwnerProfile } from "../../utils/ownerGuard";
+import { recalculateRoomStatus } from "../../utils/roomStatus";
 import type {
 	ICreateRoomPayload,
 	ISetRoomAvailabilityPayload,
@@ -292,12 +293,30 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
 	}
 
-	// guest / tenant: only published rooms inside a live property are visible
+	// guest / tenant: only published rooms inside a live property are visible,
+	// and the owner's private fields must never be returned
 	if (!viewer || viewer.role === "TENANT") {
 		if (!room.isPublished || room.property.isDeleted) {
 			throw new AppError(httpStatus.NOT_FOUND, "Room not found");
 		}
-		return room;
+
+		const { owner, ...propertyRest } = room.property;
+		return {
+			...room,
+			property: {
+				...propertyRest,
+				owner: owner
+					? {
+							id: owner.id,
+							name: owner.name,
+							companyName: owner.companyName,
+							user: owner.user
+								? { id: owner.user.id, imageUrl: owner.user.imageUrl }
+								: null,
+						}
+					: null,
+			},
+		};
 	}
 
 	if (viewer.role === "OWNER" && room.property.owner.userId !== viewer.userId) {
@@ -330,7 +349,15 @@ const updateRoom = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
 	}
 
-	return prisma.room.update({
+	// cannot shrink a shared room below the number of beds currently occupied
+	if (payload.bedCount !== undefined && payload.bedCount < room.occupiedBeds) {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			`Room currently has ${room.occupiedBeds} occupied bed(s). You cannot reduce bedCount below that.`,
+		);
+	}
+
+	const updatedRoom = await prisma.room.update({
 		where: { id: roomId },
 		data: {
 			name: payload.name,
@@ -345,6 +372,12 @@ const updateRoom = async (
 			amenities: payload.amenities,
 		},
 	});
+
+	// a changed capacity can affect the occupancy-derived status (AVAILABLE /
+	// RESERVED / OCCUPIED), so recompute it
+	await recalculateRoomStatus(roomId);
+
+	return updatedRoom;
 };
 
 // Owner sets availability / publishes a room
@@ -485,15 +518,21 @@ const removeRoomImage = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
 	}
 
-	const images = ((room.images as TImage[]) || []).filter(
-		(img) => img.publicId !== publicId,
-	);
+	const existingImages = (room.images as TImage[]) || [];
+	const targetImage = existingImages.find((img) => img.publicId === publicId);
+
+	if (!targetImage) {
+		throw new AppError(httpStatus.NOT_FOUND, "Image not found");
+	}
+
+	const images = existingImages.filter((img) => img.publicId !== publicId);
 
 	await prisma.room.update({
 		where: { id: roomId },
 		data: { images: images as any },
 	});
 
+	// the asset belonged to this room, so it is safe to purge from cloudinary
 	await deleteFromCloudinary(publicId);
 
 	return images;

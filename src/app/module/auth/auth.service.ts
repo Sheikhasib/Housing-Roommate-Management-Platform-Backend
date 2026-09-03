@@ -520,7 +520,7 @@ const forgotPassword = async (payload: IForgotPasswordPayload) => {
 	}
 
 	// Check if the user has a Google ID associated with their account
-	if (isUserExists.googleId && isUserExists.authProvider !== "GOOGLE") {
+	if (isUserExists.googleId) {
 		throw new AppError(
 			httpStatus.CONFLICT,
 			"User already has an account registered with Google. Please use Google login.",
@@ -575,7 +575,7 @@ const resetPassword = async (payload: IResetPasswordPayload) => {
 		throw new AppError(httpStatus.NOT_FOUND, "User is deleted");
 	}
 
-	if (isUserExists.googleId && isUserExists.authProvider !== "GOOGLE") {
+	if (isUserExists.googleId) {
 		throw new AppError(
 			httpStatus.CONFLICT,
 			"User already has an account registered with Google. Please use Google login.",

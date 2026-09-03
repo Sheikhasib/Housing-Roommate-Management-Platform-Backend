@@ -44,4 +44,19 @@ router.get(
 	AdminController.getAuditLogs,
 );
 
+// Payments stuck in REFUND_PENDING (unknown bKash refund outcome) - ADMIN
+router.get(
+	"/payments/pending-refunds",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	AdminController.getPendingRefundPayments,
+);
+
+// Resolve a pending refund payment after checking the bKash portal - ADMIN
+router.post(
+	"/payments/pending-refunds/:paymentId/resolve",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	validateRequest(AdminValidation.ResolvePendingRefundZodSchema),
+	AdminController.resolvePendingRefundPayment,
+);
+
 export const AdminRoutes = router;

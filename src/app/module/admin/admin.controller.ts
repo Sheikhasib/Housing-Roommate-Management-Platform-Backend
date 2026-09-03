@@ -76,10 +76,51 @@ const getAuditLogs = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+// Payments awaiting refund reconciliation
+const getPendingRefundPayments = catchAsync(
+	async (req: Request, res: Response) => {
+		const { data, meta } = await AdminServices.getPendingRefundPayments(
+			req.query,
+		);
+
+		sendResponse(res, {
+			statusCode: httpStatus.OK,
+			success: true,
+			message: "Pending refund payments fetched successfully",
+			data,
+			meta,
+		});
+	},
+);
+
+// Resolve a pending refund payment
+const resolvePendingRefundPayment = catchAsync(
+	async (req: Request, res: Response) => {
+		const paymentId = req.params.paymentId as string;
+		const payload = req.body;
+		const user = req.user!;
+
+		const result = await AdminServices.resolvePendingRefundPayment(
+			paymentId,
+			payload,
+			user,
+		);
+
+		sendResponse(res, {
+			statusCode: httpStatus.OK,
+			success: true,
+			message: "Pending refund resolved successfully",
+			data: result,
+		});
+	},
+);
+
 export const AdminController = {
 	getAdminDashboardStats,
 	getAllUsers,
 	updateUserStatus,
 	updateUserRole,
 	getAuditLogs,
+	getPendingRefundPayments,
+	resolvePendingRefundPayment,
 };

@@ -208,15 +208,14 @@ const paymentCallback = async (query: Record<string, any>) => {
 		throw new AppError(httpStatus.BAD_REQUEST, "Invalid bKash callback query");
 	}
 
-	// execute the payment to read its final state from the gateway
-	const executedResult = await executeBkashPayment(paymentID);
+	const isSuccess = status === "success";
 
 	// find the local payment row by the gateway payment id (or invoice number)
 	const payment = await prisma.payment.findFirst({
 		where: {
 			OR: [
 				{ bKashPaymentId: paymentID },
-				{ merchantInvoiceNumber: executedResult?.merchantInvoiceNumber },
+				{ merchantInvoiceNumber: query.merchantInvoiceNumber },
 			],
 		},
 	});
@@ -227,7 +226,12 @@ const paymentCallback = async (query: Record<string, any>) => {
 
 	const isDeposit = payment.purpose === PaymentPurpose.DEPOSIT;
 
-	if (status === "success") {
+	if (isSuccess) {
+		// execute the payment to read its final state from the gateway. On a
+		// cancel/failure the payment was never executed, so we skip this call
+		// and only confirm the local FAILED/CANCELLED state below.
+		const executedResult = await executeBkashPayment(paymentID);
+
 		if (isDeposit) {
 			const result = await prisma.$transaction(async (tx) =>
 				handleDepositSuccess(tx, payment.id, executedResult),
@@ -300,7 +304,8 @@ const paymentCallback = async (query: Record<string, any>) => {
 				where: { id: payment.id },
 				data: {
 					status: newStatus,
-					gatwayResponse: executedResult,
+					// no gateway execution happened - store the raw callback payload
+					gatwayResponse: query,
 				},
 			});
 

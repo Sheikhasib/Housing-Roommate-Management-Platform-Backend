@@ -226,13 +226,30 @@ const updateViewingStatus = async (
 		);
 	}
 
-	if (viewingRequest.status !== ViewingStatus.PENDING) {
-		if (viewingRequest.status === payload.status) {
-			throw new AppError(
-				httpStatus.CONFLICT,
-				`Viewing request is already ${payload.status.toLowerCase()}`,
-			);
-		}
+	// guard the allowed lifecycle transitions (a viewing can only complete
+	// after it has been approved and actually took place)
+	const allowedTransitions: Record<ViewingStatus, ViewingStatus[]> = {
+		[ViewingStatus.PENDING]: [ViewingStatus.APPROVED, ViewingStatus.REJECTED],
+		[ViewingStatus.APPROVED]: [ViewingStatus.COMPLETED],
+		[ViewingStatus.REJECTED]: [],
+		[ViewingStatus.COMPLETED]: [],
+		[ViewingStatus.CANCELLED]: [],
+	};
+
+	if (viewingRequest.status === payload.status) {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			`Viewing request is already ${payload.status.toLowerCase()}`,
+		);
+	}
+
+	if (
+		!(allowedTransitions[viewingRequest.status] || []).includes(payload.status)
+	) {
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			`Cannot move viewing request from ${viewingRequest.status.toLowerCase()} to ${payload.status.toLowerCase()}`,
+		);
 	}
 
 	if (payload.status === ViewingStatus.REJECTED && !payload.rejectionReason) {
@@ -243,8 +260,11 @@ const updateViewingStatus = async (
 	}
 
 	const updatedRequest = await prisma.$transaction(async (tx) => {
-		const updated = await tx.viewingRequest.update({
-			where: { id: requestId },
+		// conditional write: only applies while the status is still the one the
+		// transition was validated against (guards the read-then-write race
+		// against a concurrent owner decision or tenant cancellation)
+		const updatedCount = await tx.viewingRequest.updateMany({
+			where: { id: requestId, status: viewingRequest.status },
 			data: {
 				status: payload.status as ViewingStatus,
 				rejectionReason:
@@ -258,6 +278,17 @@ const updateViewingStatus = async (
 							: viewingRequest.preferredDate
 						: undefined,
 			},
+		});
+
+		if (updatedCount.count === 0) {
+			throw new AppError(
+				httpStatus.CONFLICT,
+				"Viewing request was updated by someone else. Please refresh and try again.",
+			);
+		}
+
+		const updated = await tx.viewingRequest.findUniqueOrThrow({
+			where: { id: requestId },
 		});
 
 		await writeAuditLog(
@@ -310,13 +341,21 @@ const cancelViewingRequest = async (requestId: string, user: RequestUser) => {
 			tenantProfileId: tenantProfile.id,
 			isDeleted: false,
 		},
+		include: {
+			room: { include: { property: { include: { owner: true } } } },
+		},
 	});
 
 	if (!viewingRequest) {
 		throw new AppError(httpStatus.NOT_FOUND, "Viewing request not found");
 	}
 
-	if (viewingRequest.status !== ViewingStatus.PENDING) {
+	const cancellableStatuses: ViewingStatus[] = [
+		ViewingStatus.PENDING,
+		ViewingStatus.APPROVED,
+	];
+
+	if (!cancellableStatuses.includes(viewingRequest.status)) {
 		throw new AppError(
 			httpStatus.CONFLICT,
 			`Viewing request is already ${viewingRequest.status.toLowerCase()}`,
@@ -324,9 +363,25 @@ const cancelViewingRequest = async (requestId: string, user: RequestUser) => {
 	}
 
 	const updatedRequest = await prisma.$transaction(async (tx) => {
-		const updated = await tx.viewingRequest.update({
-			where: { id: requestId },
+		// conditional write: only a still pending/approved request can be
+		// cancelled (guards against the owner deciding concurrently)
+		const updatedCount = await tx.viewingRequest.updateMany({
+			where: {
+				id: requestId,
+				status: { in: cancellableStatuses },
+			},
 			data: { status: ViewingStatus.CANCELLED },
+		});
+
+		if (updatedCount.count === 0) {
+			throw new AppError(
+				httpStatus.CONFLICT,
+				"Viewing request is no longer cancellable. Please refresh and try again.",
+			);
+		}
+
+		const updated = await tx.viewingRequest.findUniqueOrThrow({
+			where: { id: requestId },
 		});
 
 		await writeAuditLog(
@@ -344,6 +399,15 @@ const cancelViewingRequest = async (requestId: string, user: RequestUser) => {
 		);
 
 		return updated;
+	});
+
+	// the owner loses a planned visit - let them know
+	await createNotification({
+		userId: viewingRequest.room.property.owner.userId,
+		type: NotificationType.VIEWING,
+		title: "Viewing request cancelled 📅",
+		message: `${tenantProfile.name} cancelled their viewing request for "${viewingRequest.room.name}".`,
+		data: { viewingRequestId: requestId, roomId: viewingRequest.roomId },
 	});
 
 	return updatedRequest;

@@ -161,6 +161,9 @@ const getOwnerAnalytics = async (user: RequestUser) => {
 	});
 
 	// earnings from deposits + invoices on my rooms
+	// refunded deposits are moved to REFUNDED (or parked in REFUND_PENDING
+	// while a refund is in flight) - neither is PAID, so PAID sums already
+	// net them out - never subtract REFUNDED again.
 	const earnedResult = await prisma.payment.aggregate({
 		where: {
 			status: PaymentStatus.PAID,
@@ -168,14 +171,6 @@ const getOwnerAnalytics = async (user: RequestUser) => {
 				{ application: { room: { property: { ownerId: ownerProfile.id } } } },
 				{ invoice: { room: { property: { ownerId: ownerProfile.id } } } },
 			],
-		},
-		_sum: { amount: true },
-	});
-
-	const refundedResult = await prisma.payment.aggregate({
-		where: {
-			status: PaymentStatus.REFUNDED,
-			application: { room: { property: { ownerId: ownerProfile.id } } },
 		},
 		_sum: { amount: true },
 	});
@@ -218,9 +213,7 @@ const getOwnerAnalytics = async (user: RequestUser) => {
 		pendingApplications,
 		pendingViewings,
 		openMaintenance,
-		totalEarnings:
-			(earnedResult._sum.amount?.toNumber() || 0) -
-			(refundedResult._sum.amount?.toNumber() || 0),
+		totalEarnings: earnedResult._sum.amount?.toNumber() || 0,
 		outstandingRent: unpaidInvoiceAgg._sum.amount?.toNumber() || 0,
 	};
 };

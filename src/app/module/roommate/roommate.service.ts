@@ -422,7 +422,8 @@ const getMyRoommatePairs = async (user: RequestUser) => {
 	return data;
 };
 
-// Leave / remove a roommate pair
+// Leave / remove a roommate pair. The underlying requests are marked DECLINED
+// so the two tenants can send each other a fresh request later.
 const removeRoommatePair = async (pairId: string, user: RequestUser) => {
 	const myProfile = await getTenantProfile(user.userId);
 
@@ -437,8 +438,26 @@ const removeRoommatePair = async (pairId: string, user: RequestUser) => {
 		throw new AppError(httpStatus.NOT_FOUND, "Roommate pair not found");
 	}
 
-	await prisma.roommatePair.delete({
-		where: { id: pairId },
+	const otherId =
+		pair.tenantAId === myProfile.id ? pair.tenantBId : pair.tenantAId;
+
+	await prisma.$transaction(async (tx) => {
+		await tx.roommatePair.delete({
+			where: { id: pairId },
+		});
+
+		// clear any ACCEPTED/PENDING request between the pair in both directions
+		// so they are free to reconnect with a brand-new request
+		await tx.roommateRequest.updateMany({
+			where: {
+				isDeleted: false,
+				OR: [
+					{ senderId: myProfile.id, receiverId: otherId },
+					{ senderId: otherId, receiverId: myProfile.id },
+				],
+			},
+			data: { status: RoommateRequestStatus.DECLINED, respondedAt: new Date() },
+		});
 	});
 
 	return { message: "Roommate pair removed successfully" };

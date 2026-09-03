@@ -206,11 +206,22 @@ const getPropertyDetail = async (propertyId: string, viewer?: RequestUser) => {
 		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
 	}
 
-	// Tenant/guest viewers can only browse published rooms of a property
+	// Tenant/guest viewers can only browse published rooms of a property, and
+	// must never receive the owner's private data (email, documents, address).
 	if (!viewer || viewer.role === Role.TENANT) {
+		const { owner, rooms, ...rest } = property;
 		return {
-			...property,
-			rooms: property.rooms.filter((room) => room.isPublished),
+			...rest,
+			owner: owner
+				? {
+						id: owner.id,
+						name: owner.name,
+						companyName: owner.companyName,
+						verificationStatus: owner.verificationStatus,
+						user: owner.user ? { imageUrl: owner.user.imageUrl } : null,
+					}
+				: null,
+			rooms: rooms.filter((room) => room.isPublished),
 			units: [],
 		};
 	}
@@ -459,15 +470,21 @@ const removePropertyImage = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
 	}
 
-	const images = ((property.images as TImage[]) || []).filter(
-		(img) => img.publicId !== publicId,
-	);
+	const existingImages = (property.images as TImage[]) || [];
+	const targetImage = existingImages.find((img) => img.publicId === publicId);
+
+	if (!targetImage) {
+		throw new AppError(httpStatus.NOT_FOUND, "Image not found");
+	}
+
+	const images = existingImages.filter((img) => img.publicId !== publicId);
 
 	await prisma.property.update({
 		where: { id: propertyId },
 		data: { images: images as any },
 	});
 
+	// the asset belonged to this property, so it is safe to purge from cloudinary
 	await deleteFromCloudinary(publicId);
 
 	return images;
