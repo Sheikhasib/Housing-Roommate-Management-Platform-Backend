@@ -22,22 +22,22 @@ router.get("/my-rooms", auth(Role.OWNER), RoomController.getMyRooms);
 // Public room search (no auth)
 router.get("/public", RoomController.getPublicRooms);
 
-// Single room detail (public; owners/admins see their own drafts via
-// optionalAuth - guests and tenants only ever see published rooms)
+// Single room detail (public; owners/assigned managers/admins see their own
+// drafts via optionalAuth - guests and tenants only ever see published rooms)
 router.get("/:roomId", optionalAuth, RoomController.getRoomDetail);
 
-// Update room - OWNER
+// Update room - OWNER (verified) or assigned MANAGER
 router.patch(
 	"/:roomId",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	validateRequest(RoomValidation.UpdateRoomZodSchema),
 	RoomController.updateRoom,
 );
 
-// Set room availability/publish - OWNER
+// Set room availability/publish - OWNER (verified) or assigned MANAGER
 router.patch(
 	"/:roomId/availability",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	validateRequest(RoomValidation.SetRoomAvailabilityZodSchema),
 	RoomController.setRoomAvailability,
 );
@@ -49,17 +49,17 @@ router.delete(
 	RoomController.deleteRoom,
 );
 
-// Room images - OWNER
+// Room images - OWNER (verified) or assigned MANAGER
 router.post(
 	"/:roomId/images",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	upload.array("images", 10),
 	RoomController.uploadRoomImages,
 );
 
 router.delete(
 	"/:roomId/images",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	RoomController.removeRoomImage,
 );
 

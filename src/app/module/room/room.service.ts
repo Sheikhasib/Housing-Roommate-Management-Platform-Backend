@@ -1,5 +1,5 @@
 import httpStatus from "http-status";
-import { LeaseStatus, RoomStatus } from "../../../generated/prisma/enums";
+import { LeaseStatus, Role, RoomStatus } from "../../../generated/prisma/enums";
 import type { IQuery } from "../../interfaces";
 import type { RoomWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
@@ -11,6 +11,7 @@ import {
 	uploadFileToCloudinary,
 } from "../../utils/cloudinaryUpload";
 import { getVerifiedOwnerProfile } from "../../utils/ownerGuard";
+import { propertyManagerScope } from "../../utils/propertyAccess";
 import { recalculateRoomStatus } from "../../utils/roomStatus";
 import type {
 	ICreateRoomPayload,
@@ -34,6 +35,43 @@ const getOwnedPropertyOrThrow = async (
 	}
 
 	return property;
+};
+
+// Resolve a room for an OPERATE-tier principal (spec 17): the verified owner
+// or an assigned PROPERTY_MANAGER. Generic 404 on any miss (no ownership leak)
+// so callers can never probe other people's rooms.
+const resolveOperateRoom = async (roomId: string, user: RequestUser) => {
+	if (user.role === Role.PROPERTY_MANAGER) {
+		const room = await prisma.room.findFirst({
+			where: {
+				id: roomId,
+				isDeleted: false,
+				property: propertyManagerScope(user.userId),
+			},
+		});
+
+		if (!room) {
+			throw new AppError(httpStatus.NOT_FOUND, "Room not found");
+		}
+
+		return room;
+	}
+
+	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
+
+	const room = await prisma.room.findFirst({
+		where: {
+			id: roomId,
+			isDeleted: false,
+			property: { ownerId: ownerProfile.id },
+		},
+	});
+
+	if (!room) {
+		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
+	}
+
+	return room;
 };
 
 // Owner creates a room inside one of their properties
@@ -319,6 +357,24 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 		};
 	}
 
+	if (viewer.role === "PROPERTY_MANAGER") {
+		const assignment = await prisma.propertyManager.findFirst({
+			where: {
+				propertyId: room.propertyId,
+				manager: { userId: viewer.userId, isDeleted: false },
+			},
+		});
+
+		if (!assignment) {
+			throw new AppError(
+				httpStatus.FORBIDDEN,
+				"You are not allowed to view this room",
+			);
+		}
+
+		return room;
+	}
+
 	if (viewer.role === "OWNER" && room.property.owner.userId !== viewer.userId) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
@@ -329,25 +385,13 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 	return room;
 };
 
-// Owner updates room details
+// Owner or assigned manager updates room details (OPERATE tier)
 const updateRoom = async (
 	roomId: string,
 	payload: IUpdateRoomPayload,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
-
-	const room = await prisma.room.findFirst({
-		where: {
-			id: roomId,
-			isDeleted: false,
-			property: { ownerId: ownerProfile.id },
-		},
-	});
-
-	if (!room) {
-		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
-	}
+	const room = await resolveOperateRoom(roomId, user);
 
 	// cannot shrink a shared room below the number of beds currently occupied
 	if (payload.bedCount !== undefined && payload.bedCount < room.occupiedBeds) {
@@ -380,25 +424,13 @@ const updateRoom = async (
 	return updatedRoom;
 };
 
-// Owner sets availability / publishes a room
+// Owner or assigned manager sets availability / publishes a room (OPERATE tier)
 const setRoomAvailability = async (
 	roomId: string,
 	payload: ISetRoomAvailabilityPayload,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
-
-	const room = await prisma.room.findFirst({
-		where: {
-			id: roomId,
-			isDeleted: false,
-			property: { ownerId: ownerProfile.id },
-		},
-	});
-
-	if (!room) {
-		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
-	}
+	const room = await resolveOperateRoom(roomId, user);
 
 	// a fully occupied room cannot be marked available again while tenants live in it
 	if (payload.status === RoomStatus.AVAILABLE) {
@@ -465,19 +497,7 @@ const uploadRoomImages = async (
 	buffers: Buffer[],
 	user: RequestUser,
 ) => {
-	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
-
-	const room = await prisma.room.findFirst({
-		where: {
-			id: roomId,
-			isDeleted: false,
-			property: { ownerId: ownerProfile.id },
-		},
-	});
-
-	if (!room) {
-		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
-	}
+	const room = await resolveOperateRoom(roomId, user);
 
 	const uploadResults = await Promise.all(
 		buffers.map((buffer) => uploadFileToCloudinary(buffer, "room-images")),
@@ -504,19 +524,7 @@ const removeRoomImage = async (
 	publicId: string,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
-
-	const room = await prisma.room.findFirst({
-		where: {
-			id: roomId,
-			isDeleted: false,
-			property: { ownerId: ownerProfile.id },
-		},
-	});
-
-	if (!room) {
-		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
-	}
+	const room = await resolveOperateRoom(roomId, user);
 
 	const existingImages = (room.images as TImage[]) || [];
 	const targetImage = existingImages.find((img) => img.publicId === publicId);

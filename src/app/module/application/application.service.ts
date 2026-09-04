@@ -15,6 +15,7 @@ import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { sendTemplateEmail } from "../../utils/email";
 import { createNotification } from "../../utils/notification";
+import { propertyManagerScope } from "../../utils/propertyAccess";
 import { writeAuditLog } from "../../utils/audit";
 import type {
 	IApplyForRoomPayload,
@@ -229,23 +230,34 @@ const getMyApplications = async (user: RequestUser, query: IQuery) => {
 	};
 };
 
-// OWNER: applications on their rooms
+// OWNER / assigned MANAGER: applications on their (managed) rooms
 const getOwnerApplications = async (user: RequestUser, query: IQuery) => {
-	const ownerProfile = await prisma.ownerProfile.findFirst({
-		where: { userId: user.userId, isDeleted: false },
-	});
-
-	if (!ownerProfile) {
-		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
-	}
-
 	const limit = query.limit ? Number(query.limit) : 10;
 	const page = query.page ? Number(query.page) : 1;
 	const skip = (page - 1) * limit;
 
-	const andConditions: ApplicationWhereInput[] = [
-		{ isDeleted: false, room: { property: { ownerId: ownerProfile.id } } },
-	];
+	const andConditions: ApplicationWhereInput[] = [];
+
+	if (user.role === Role.PROPERTY_MANAGER) {
+		// membership-based scope: only applications on rooms of assigned properties
+		andConditions.push({
+			isDeleted: false,
+			room: { property: propertyManagerScope(user.userId) },
+		});
+	} else {
+		const ownerProfile = await prisma.ownerProfile.findFirst({
+			where: { userId: user.userId, isDeleted: false },
+		});
+
+		if (!ownerProfile) {
+			throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
+		}
+
+		andConditions.push({
+			isDeleted: false,
+			room: { property: { ownerId: ownerProfile.id } },
+		});
+	}
 
 	if (query.status) {
 		andConditions.push({ status: query.status });
@@ -337,7 +349,24 @@ const getApplicationDetail = async (
 	const isOwnerOfRoom = application.room.property.owner.userId === user.userId;
 	const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
 
-	if (!isTenantOfApplication && !isOwnerOfRoom && !isAdmin) {
+	// an assigned manager may inspect applications on their properties
+	let isAssignedManager = false;
+	if (user.role === Role.PROPERTY_MANAGER) {
+		const assignment = await prisma.propertyManager.findFirst({
+			where: {
+				propertyId: application.room.propertyId,
+				manager: { userId: user.userId, isDeleted: false },
+			},
+		});
+		isAssignedManager = Boolean(assignment);
+	}
+
+	if (
+		!isTenantOfApplication &&
+		!isOwnerOfRoom &&
+		!isAssignedManager &&
+		!isAdmin
+	) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You are not allowed to view this application",
@@ -347,17 +376,21 @@ const getApplicationDetail = async (
 	return application;
 };
 
-// OWNER: approve or reject an application
+// OWNER / assigned MANAGER: approve or reject an application
 const reviewApplication = async (
 	applicationId: string,
 	payload: IReviewApplicationPayload,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findFirst({
-		where: { userId: user.userId, isDeleted: false },
-	});
+	// owners review through their owner profile; managers through membership
+	const ownerProfile =
+		user.role === Role.PROPERTY_MANAGER
+			? null
+			: await prisma.ownerProfile.findFirst({
+					where: { userId: user.userId, isDeleted: false },
+				});
 
-	if (!ownerProfile) {
+	if (user.role !== Role.PROPERTY_MANAGER && !ownerProfile) {
 		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
 	}
 
@@ -373,8 +406,22 @@ const reviewApplication = async (
 			throw new AppError(httpStatus.NOT_FOUND, "Application not found");
 		}
 
-		// only the owner of the property may review
-		if (application.room.property.ownerId !== ownerProfile.id) {
+		// only the property's owner or an assigned manager may review
+		if (user.role === Role.PROPERTY_MANAGER) {
+			const assignment = await tx.propertyManager.findFirst({
+				where: {
+					propertyId: application.room.propertyId,
+					manager: { userId: user.userId, isDeleted: false },
+				},
+			});
+
+			if (!assignment) {
+				throw new AppError(
+					httpStatus.FORBIDDEN,
+					"You are not the owner of this room",
+				);
+			}
+		} else if (application.room.property.ownerId !== ownerProfile?.id) {
 			throw new AppError(
 				httpStatus.FORBIDDEN,
 				"You are not the owner of this room",

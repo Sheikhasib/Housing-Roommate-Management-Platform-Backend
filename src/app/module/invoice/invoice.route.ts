@@ -10,18 +10,18 @@ const router = Router();
 // My invoices - TENANT
 router.get("/my-invoices", auth(Role.TENANT), InvoiceController.getMyInvoices);
 
-// Create a utility bill for a room - OWNER
+// Create a utility bill for a room - OWNER / assigned MANAGER
 router.post(
 	"/utility-bill",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	validateRequest(InvoiceValidation.CreateUtilityBillZodSchema),
 	InvoiceController.createUtilityBill,
 );
 
-// Invoices of a room - OWNER
+// Invoices of a room - OWNER / assigned MANAGER
 router.get(
 	"/room/:roomId",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	InvoiceController.getRoomInvoices,
 );
 

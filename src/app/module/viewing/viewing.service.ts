@@ -1,6 +1,7 @@
 import httpStatus from "http-status";
 import {
 	NotificationType,
+	Role,
 	ViewingStatus,
 } from "../../../generated/prisma/enums";
 import type { IQuery } from "../../interfaces";
@@ -10,6 +11,7 @@ import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { writeAuditLog } from "../../utils/audit";
 import { createNotification } from "../../utils/notification";
+import { propertyManagerScope } from "../../utils/propertyAccess";
 import type {
 	ICreateViewingRequestPayload,
 	IUpdateViewingStatusPayload,
@@ -129,23 +131,34 @@ const getMyViewingRequests = async (user: RequestUser, query: IQuery) => {
 	};
 };
 
-// OWNER: viewing requests for rooms of their properties
+// OWNER / assigned MANAGER: viewing requests for rooms of their properties
 const getOwnerViewingRequests = async (user: RequestUser, query: IQuery) => {
-	const ownerProfile = await prisma.ownerProfile.findFirst({
-		where: { userId: user.userId, isDeleted: false },
-	});
-
-	if (!ownerProfile) {
-		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
-	}
-
 	const limit = query.limit ? Number(query.limit) : 10;
 	const page = query.page ? Number(query.page) : 1;
 	const skip = (page - 1) * limit;
 
-	const andConditions: ViewingRequestWhereInput[] = [
-		{ isDeleted: false, room: { property: { ownerId: ownerProfile.id } } },
-	];
+	const andConditions: ViewingRequestWhereInput[] = [];
+
+	if (user.role === Role.PROPERTY_MANAGER) {
+		// membership-based scope: only requests on rooms of assigned properties
+		andConditions.push({
+			isDeleted: false,
+			room: { property: propertyManagerScope(user.userId) },
+		});
+	} else {
+		const ownerProfile = await prisma.ownerProfile.findFirst({
+			where: { userId: user.userId, isDeleted: false },
+		});
+
+		if (!ownerProfile) {
+			throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
+		}
+
+		andConditions.push({
+			isDeleted: false,
+			room: { property: { ownerId: ownerProfile.id } },
+		});
+	}
 
 	if (query.status) {
 		andConditions.push({ status: query.status });
@@ -184,7 +197,7 @@ const getOwnerViewingRequests = async (user: RequestUser, query: IQuery) => {
 	};
 };
 
-// OWNER/ADMIN: approve/reject/complete a viewing request
+// OWNER / assigned MANAGER / ADMIN: approve/reject/complete a viewing request
 const updateViewingStatus = async (
 	requestId: string,
 	payload: IUpdateViewingStatusPayload,
@@ -217,6 +230,23 @@ const updateViewingStatus = async (
 			httpStatus.FORBIDDEN,
 			"You are not allowed to update viewing request status",
 		);
+	}
+
+	// a manager may decide only for rooms inside their assigned properties
+	if (user.role === "PROPERTY_MANAGER") {
+		const assignment = await prisma.propertyManager.findFirst({
+			where: {
+				propertyId: viewingRequest.room.propertyId,
+				manager: { userId: user.userId, isDeleted: false },
+			},
+		});
+
+		if (!assignment) {
+			throw new AppError(
+				httpStatus.FORBIDDEN,
+				"You are not the owner of this room",
+			);
+		}
 	}
 
 	if (user.role === "OWNER" && !isOwnerOfRoom) {

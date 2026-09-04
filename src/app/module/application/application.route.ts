@@ -22,24 +22,30 @@ router.get(
 	ApplicationController.getMyApplications,
 );
 
-// Applications on my rooms - OWNER
+// Applications on my rooms - OWNER / assigned MANAGER
 router.get(
 	"/owner-applications",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	ApplicationController.getOwnerApplications,
 );
 
-// Single application detail (tenant/owner/admin)
+// Single application detail (tenant/owner/assigned manager/admin)
 router.get(
 	"/:applicationId",
-	auth(Role.TENANT, Role.OWNER, Role.ADMIN, Role.SUPER_ADMIN),
+	auth(
+		Role.TENANT,
+		Role.OWNER,
+		Role.PROPERTY_MANAGER,
+		Role.ADMIN,
+		Role.SUPER_ADMIN,
+	),
 	ApplicationController.getApplicationDetail,
 );
 
-// Review (approve/reject) an application - OWNER
+// Review (approve/reject) an application - OWNER / assigned MANAGER
 router.patch(
 	"/:applicationId/review",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	validateRequest(ApplicationValidation.ReviewApplicationZodSchema),
 	ApplicationController.reviewApplication,
 );

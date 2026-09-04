@@ -11,13 +11,23 @@ const router = Router();
 // My leases - TENANT
 router.get("/my-leases", auth(Role.TENANT), LeaseController.getMyLeases);
 
-// Leases on my rooms - OWNER
-router.get("/owner-leases", auth(Role.OWNER), LeaseController.getOwnerLeases);
+// Leases on my rooms - OWNER / assigned MANAGER (view-only)
+router.get(
+	"/owner-leases",
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
+	LeaseController.getOwnerLeases,
+);
 
-// Single lease detail (tenant/owner/admin)
+// Single lease detail (tenant/owner/assigned manager (view-only)/admin)
 router.get(
 	"/:leaseId",
-	auth(Role.TENANT, Role.OWNER, Role.ADMIN, Role.SUPER_ADMIN),
+	auth(
+		Role.TENANT,
+		Role.OWNER,
+		Role.PROPERTY_MANAGER,
+		Role.ADMIN,
+		Role.SUPER_ADMIN,
+	),
 	LeaseController.getLeaseDetail,
 );
 

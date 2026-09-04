@@ -23,25 +23,31 @@ router.get(
 	MaintenanceController.getMyMaintenanceRequests,
 );
 
-// Maintenance requests on my rooms - OWNER
+// Maintenance requests on my rooms - OWNER / assigned MANAGER
 router.get(
 	"/owner-requests",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	MaintenanceController.getOwnerMaintenanceRequests,
 );
 
-// Update request status - OWNER / ADMIN
+// Update request status - OWNER / assigned MANAGER / ADMIN
 router.patch(
 	"/:requestId/status",
-	auth(Role.OWNER, Role.ADMIN, Role.SUPER_ADMIN),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER, Role.ADMIN, Role.SUPER_ADMIN),
 	validateRequest(MaintenanceValidation.UpdateMaintenanceStatusZodSchema),
 	MaintenanceController.updateMaintenanceStatus,
 );
 
-// Attach an image - TENANT / OWNER / ADMIN
+// Attach an image - TENANT / OWNER / assigned MANAGER / ADMIN
 router.post(
 	"/:requestId/image",
-	auth(Role.TENANT, Role.OWNER, Role.ADMIN, Role.SUPER_ADMIN),
+	auth(
+		Role.TENANT,
+		Role.OWNER,
+		Role.PROPERTY_MANAGER,
+		Role.ADMIN,
+		Role.SUPER_ADMIN,
+	),
 	upload.single("image"),
 	MaintenanceController.uploadMaintenanceImage,
 );

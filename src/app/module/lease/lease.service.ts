@@ -15,6 +15,7 @@ import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { sendTemplateEmail } from "../../utils/email";
 import { createNotification } from "../../utils/notification";
+import { propertyManagerScope } from "../../utils/propertyAccess";
 import { writeAuditLog } from "../../utils/audit";
 import { recalculateRoomStatus } from "../../utils/roomStatus";
 import { uploadFileToCloudinary } from "../../utils/cloudinaryUpload";
@@ -74,23 +75,34 @@ const getMyLeases = async (user: RequestUser, query: IQuery) => {
 	};
 };
 
-// OWNER: leases for their rooms
+// OWNER / assigned MANAGER (view-only): leases for their (managed) rooms
 const getOwnerLeases = async (user: RequestUser, query: IQuery) => {
-	const ownerProfile = await prisma.ownerProfile.findFirst({
-		where: { userId: user.userId, isDeleted: false },
-	});
-
-	if (!ownerProfile) {
-		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
-	}
-
 	const limit = query.limit ? Number(query.limit) : 10;
 	const page = query.page ? Number(query.page) : 1;
 	const skip = (page - 1) * limit;
 
-	const andConditions: LeaseWhereInput[] = [
-		{ isDeleted: false, room: { property: { ownerId: ownerProfile.id } } },
-	];
+	const andConditions: LeaseWhereInput[] = [];
+
+	if (user.role === Role.PROPERTY_MANAGER) {
+		// membership-based scope: only leases on rooms of assigned properties
+		andConditions.push({
+			isDeleted: false,
+			room: { property: propertyManagerScope(user.userId) },
+		});
+	} else {
+		const ownerProfile = await prisma.ownerProfile.findFirst({
+			where: { userId: user.userId, isDeleted: false },
+		});
+
+		if (!ownerProfile) {
+			throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
+		}
+
+		andConditions.push({
+			isDeleted: false,
+			room: { property: { ownerId: ownerProfile.id } },
+		});
+	}
 
 	if (query.status) {
 		andConditions.push({ status: query.status });
@@ -163,7 +175,19 @@ const getLeaseDetail = async (leaseId: string, user: RequestUser) => {
 	const isOwner = lease.room.property.owner.userId === user.userId;
 	const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
 
-	if (!isTenant && !isOwner && !isAdmin) {
+	// an assigned manager may view leases on their properties (view-only)
+	let isAssignedManager = false;
+	if (user.role === Role.PROPERTY_MANAGER) {
+		const assignment = await prisma.propertyManager.findFirst({
+			where: {
+				propertyId: lease.room.propertyId,
+				manager: { userId: user.userId, isDeleted: false },
+			},
+		});
+		isAssignedManager = Boolean(assignment);
+	}
+
+	if (!isTenant && !isOwner && !isAssignedManager && !isAdmin) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You are not allowed to view this lease",

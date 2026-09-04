@@ -13,6 +13,7 @@ import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { writeAuditLog } from "../../utils/audit";
 import { createNotification } from "../../utils/notification";
+import { propertyManagerScope } from "../../utils/propertyAccess";
 import { sendTemplateEmail } from "../../utils/email";
 import { uploadFileToCloudinary } from "../../utils/cloudinaryUpload";
 import type {
@@ -124,26 +125,37 @@ const getMyMaintenanceRequests = async (user: RequestUser, query: IQuery) => {
 	};
 };
 
-// OWNER: maintenance requests on their rooms
+// OWNER / assigned MANAGER: maintenance requests on their (managed) rooms
 const getOwnerMaintenanceRequests = async (
 	user: RequestUser,
 	query: IQuery,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findFirst({
-		where: { userId: user.userId, isDeleted: false },
-	});
-
-	if (!ownerProfile) {
-		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
-	}
-
 	const limit = query.limit ? Number(query.limit) : 10;
 	const page = query.page ? Number(query.page) : 1;
 	const skip = (page - 1) * limit;
 
-	const andConditions: MaintenanceRequestWhereInput[] = [
-		{ isDeleted: false, room: { property: { ownerId: ownerProfile.id } } },
-	];
+	const andConditions: MaintenanceRequestWhereInput[] = [];
+
+	if (user.role === Role.PROPERTY_MANAGER) {
+		// membership-based scope: only requests on rooms of assigned properties
+		andConditions.push({
+			isDeleted: false,
+			room: { property: propertyManagerScope(user.userId) },
+		});
+	} else {
+		const ownerProfile = await prisma.ownerProfile.findFirst({
+			where: { userId: user.userId, isDeleted: false },
+		});
+
+		if (!ownerProfile) {
+			throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
+		}
+
+		andConditions.push({
+			isDeleted: false,
+			room: { property: { ownerId: ownerProfile.id } },
+		});
+	}
 
 	if (query.status) {
 		andConditions.push({ status: query.status });
@@ -181,7 +193,7 @@ const getOwnerMaintenanceRequests = async (
 	};
 };
 
-// OWNER/ADMIN: move the request through its lifecycle
+// OWNER / assigned MANAGER / ADMIN: move the request through its lifecycle
 const updateMaintenanceStatus = async (
 	requestId: string,
 	payload: IUpdateMaintenanceStatusPayload,
@@ -203,7 +215,19 @@ const updateMaintenanceStatus = async (
 		maintenanceRequest.room.property.owner.userId === user.userId;
 	const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
 
-	if (!isOwnerOfRoom && !isAdmin) {
+	// an assigned manager may operate on requests inside their properties
+	let isAssignedManager = false;
+	if (user.role === Role.PROPERTY_MANAGER) {
+		const assignment = await prisma.propertyManager.findFirst({
+			where: {
+				propertyId: maintenanceRequest.room.propertyId,
+				manager: { userId: user.userId, isDeleted: false },
+			},
+		});
+		isAssignedManager = Boolean(assignment);
+	}
+
+	if (!isOwnerOfRoom && !isAssignedManager && !isAdmin) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You are not allowed to update this maintenance request",
@@ -256,13 +280,16 @@ const updateMaintenanceStatus = async (
 	}
 
 	// when assigning, the assignee must be a real, non-deleted staff user
+	// (owners, admins and delegated property managers)
 	if (next === MaintenanceStatus.ASSIGNED && payload.assignedTo) {
 		const assignee = await prisma.user.findFirst({
 			where: {
 				id: payload.assignedTo,
 				isDeleted: false,
 				status: { not: UserStatus.BLOCKED },
-				role: { in: [Role.OWNER, Role.ADMIN, Role.SUPER_ADMIN] },
+				role: {
+					in: [Role.OWNER, Role.PROPERTY_MANAGER, Role.ADMIN, Role.SUPER_ADMIN],
+				},
 			},
 		});
 
@@ -378,7 +405,19 @@ const uploadMaintenanceImage = async (
 	const isOwner = maintenanceRequest.room.property.ownerId === ownerProfile?.id;
 	const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
 
-	if (!isTenant && !isOwner && !isAdmin) {
+	// an assigned manager may attach photos to requests on their properties
+	let isAssignedManager = false;
+	if (user.role === Role.PROPERTY_MANAGER) {
+		const assignment = await prisma.propertyManager.findFirst({
+			where: {
+				propertyId: maintenanceRequest.room.propertyId,
+				manager: { userId: user.userId, isDeleted: false },
+			},
+		});
+		isAssignedManager = Boolean(assignment);
+	}
+
+	if (!isTenant && !isOwner && !isAssignedManager && !isAdmin) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You are not allowed to attach an image to this request",

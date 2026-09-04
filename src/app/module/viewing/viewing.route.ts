@@ -22,10 +22,10 @@ router.get(
 	ViewingController.getMyViewingRequests,
 );
 
-// Viewing requests on my rooms - OWNER
+// Viewing requests on my rooms - OWNER / assigned MANAGER
 router.get(
 	"/owner-requests",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	ViewingController.getOwnerViewingRequests,
 );
 
@@ -36,10 +36,10 @@ router.post(
 	ViewingController.cancelViewingRequest,
 );
 
-// Update viewing status - OWNER / ADMIN
+// Update viewing status - OWNER / assigned MANAGER / ADMIN
 router.patch(
 	"/:requestId/status",
-	auth(Role.OWNER, Role.ADMIN, Role.SUPER_ADMIN),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER, Role.ADMIN, Role.SUPER_ADMIN),
 	validateRequest(ViewingValidation.UpdateViewingStatusZodSchema),
 	ViewingController.updateViewingStatus,
 );

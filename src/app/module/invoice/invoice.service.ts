@@ -6,6 +6,7 @@ import {
 	NotificationType,
 	PaymentPurpose,
 	PaymentStatus,
+	Role,
 } from "../../../generated/prisma/enums";
 import type { IQuery } from "../../interfaces";
 import type { InvoiceWhereInput } from "../../../generated/prisma/models";
@@ -14,6 +15,7 @@ import { createBkashPayment } from "../../lib/bKash";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { createNotification } from "../../utils/notification";
+import { propertyManagerScope } from "../../utils/propertyAccess";
 import { sendTemplateEmail } from "../../utils/email";
 import type { ICreateUtilityBillPayload } from "./invoice.interface";
 
@@ -80,30 +82,45 @@ const getMyInvoices = async (user: RequestUser, query: IQuery) => {
 	};
 };
 
-// OWNER: invoices for a room of theirs
+// OWNER / assigned MANAGER: invoices for a room of theirs
 const getRoomInvoices = async (
 	user: RequestUser,
 	roomId: string,
 	query: IQuery,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findFirst({
-		where: { userId: user.userId, isDeleted: false },
-	});
+	if (user.role === Role.PROPERTY_MANAGER) {
+		// membership-based scope: generic 404 (no ownership leak)
+		const managedRoom = await prisma.room.findFirst({
+			where: {
+				id: roomId,
+				isDeleted: false,
+				property: propertyManagerScope(user.userId),
+			},
+		});
 
-	if (!ownerProfile) {
-		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
-	}
+		if (!managedRoom) {
+			throw new AppError(httpStatus.NOT_FOUND, "Room not found");
+		}
+	} else {
+		const ownerProfile = await prisma.ownerProfile.findFirst({
+			where: { userId: user.userId, isDeleted: false },
+		});
 
-	const room = await prisma.room.findFirst({
-		where: {
-			id: roomId,
-			isDeleted: false,
-			property: { ownerId: ownerProfile.id },
-		},
-	});
+		if (!ownerProfile) {
+			throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
+		}
 
-	if (!room) {
-		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
+		const room = await prisma.room.findFirst({
+			where: {
+				id: roomId,
+				isDeleted: false,
+				property: { ownerId: ownerProfile.id },
+			},
+		});
+
+		if (!room) {
+			throw new AppError(httpStatus.NOT_FOUND, "Room not found");
+		}
 	}
 
 	const limit = query.limit ? Number(query.limit) : 10;
@@ -144,17 +161,21 @@ const getRoomInvoices = async (
 	};
 };
 
-// OWNER creates a utility bill for a room; it is split equally among every
-// active lease (roommate) currently holding the room.
+// OWNER / assigned MANAGER creates a utility bill for a room; it is split
+// equally among every active lease (roommate) currently holding the room.
 const createUtilityBill = async (
 	payload: ICreateUtilityBillPayload,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await prisma.ownerProfile.findFirst({
-		where: { userId: user.userId, isDeleted: false },
-	});
+	// owners bill through their owner profile; managers through membership
+	const ownerProfile =
+		user.role === Role.PROPERTY_MANAGER
+			? null
+			: await prisma.ownerProfile.findFirst({
+					where: { userId: user.userId, isDeleted: false },
+				});
 
-	if (!ownerProfile) {
+	if (user.role !== Role.PROPERTY_MANAGER && !ownerProfile) {
 		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
 	}
 
@@ -163,7 +184,10 @@ const createUtilityBill = async (
 			where: {
 				id: payload.roomId,
 				isDeleted: false,
-				property: { ownerId: ownerProfile.id },
+				property:
+					user.role === Role.PROPERTY_MANAGER
+						? propertyManagerScope(user.userId)
+						: { ownerId: ownerProfile?.id },
 			},
 		});
 
