@@ -403,26 +403,36 @@ const terminateLease = async (
 	const { updated: finalLease } = updatedLease;
 	const { tenantProfile } = existingLease;
 
-	await createNotification({
-		userId: tenantProfile.userId,
-		type: NotificationType.LEASE,
-		title: "Lease terminated 📄",
-		message: `Your lease for the room has been terminated. Reason: ${reason}`,
-		data: { leaseId },
-	});
+	// the termination is already committed: side-effect failures must not
+	// turn it into a 500, and one failing side effect must not skip the other
+	try {
+		await createNotification({
+			userId: tenantProfile.userId,
+			type: NotificationType.LEASE,
+			title: "Lease terminated 📄",
+			message: `Your lease for the room has been terminated. Reason: ${reason}`,
+			data: { leaseId },
+		});
+	} catch (error) {
+		console.log("Lease termination notification failed:", error);
+	}
 
-	await sendTemplateEmail({
-		to: tenantProfile.email,
-		subject: "Your Lease Has Been Terminated - Housing & Roommate",
-		template: "lease-terminated",
-		data: {
-			name: tenantProfile.name,
-			reason,
-			refunded: refundResult
-				? "A full deposit refund was issued to your bKash account."
-				: "No refund was applicable.",
-		},
-	});
+	try {
+		await sendTemplateEmail({
+			to: tenantProfile.email,
+			subject: "Your Lease Has Been Terminated - Housing & Roommate",
+			template: "lease-terminated",
+			data: {
+				name: tenantProfile.name,
+				reason,
+				refunded: refundResult
+					? "A full deposit refund was issued to your bKash account."
+					: "No refund was applicable.",
+			},
+		});
+	} catch (error) {
+		console.log("Lease termination email failed:", error);
+	}
 
 	return {
 		lease: finalLease,

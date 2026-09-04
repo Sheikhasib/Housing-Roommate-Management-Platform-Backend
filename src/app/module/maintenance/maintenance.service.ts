@@ -316,29 +316,39 @@ const updateMaintenanceStatus = async (
 		return updated;
 	});
 
-	// notify the tenant who raised it
-	await createNotification({
-		userId: maintenanceRequest.tenantProfile.userId,
-		type: NotificationType.MAINTENANCE,
-		title: `Maintenance ${next.toLowerCase().replace("_", " ")} 🔧`,
-		message: `Your maintenance request "${maintenanceRequest.title}" is now ${next.toLowerCase().replace("_", " ")}.`,
-		data: {
-			maintenanceRequestId: requestId,
-			roomId: maintenanceRequest.roomId,
-		},
-	});
+	// the status change is already committed: side-effect failures must not
+	// turn it into a 500, and one failing side effect must not skip the other
+	try {
+		// notify the tenant who raised it
+		await createNotification({
+			userId: maintenanceRequest.tenantProfile.userId,
+			type: NotificationType.MAINTENANCE,
+			title: `Maintenance ${next.toLowerCase().replace("_", " ")} 🔧`,
+			message: `Your maintenance request "${maintenanceRequest.title}" is now ${next.toLowerCase().replace("_", " ")}.`,
+			data: {
+				maintenanceRequestId: requestId,
+				roomId: maintenanceRequest.roomId,
+			},
+		});
+	} catch (error) {
+		console.log("Maintenance status notification failed:", error);
+	}
 
-	await sendTemplateEmail({
-		to: maintenanceRequest.tenantProfile.email,
-		subject: `Maintenance Request ${next} - Housing & Roommate`,
-		template: "maintenance-status",
-		data: {
-			name: maintenanceRequest.tenantProfile.name,
-			title: maintenanceRequest.title,
-			status: next,
-			resolutionNotes: payload.resolutionNotes || "N/A",
-		},
-	});
+	try {
+		await sendTemplateEmail({
+			to: maintenanceRequest.tenantProfile.email,
+			subject: `Maintenance Request ${next} - Housing & Roommate`,
+			template: "maintenance-status",
+			data: {
+				name: maintenanceRequest.tenantProfile.name,
+				title: maintenanceRequest.title,
+				status: next,
+				resolutionNotes: payload.resolutionNotes || "N/A",
+			},
+		});
+	} catch (error) {
+		console.log("Maintenance status email failed:", error);
+	}
 
 	return updatedRequest;
 };

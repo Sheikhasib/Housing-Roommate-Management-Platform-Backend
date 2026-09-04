@@ -237,39 +237,49 @@ const paymentCallback = async (query: Record<string, any>) => {
 				handleDepositSuccess(tx, payment.id, executedResult),
 			);
 
-			// when a lease is freshly created, email the tenant the receipt
+			// when a lease is freshly created, email the tenant the receipt.
+			// Everything is already committed: side-effect failures must not
+			// 500 the redirect (and skip one another).
 			if (!result.alreadyPaid) {
 				const { application, lease, payment: paymentRow } = result;
 
-				const receiptPdf = await buildReceiptPdf([
-					{ label: "Receipt Type", value: "Booking Deposit" },
-					{ label: "Tenant Name", value: application.tenantProfile.name },
-					{ label: "Tenant Email", value: application.tenantProfile.email },
-					{ label: "Room", value: application.room.name },
-					{ label: "Lease Start", value: lease.startDate.toDateString() },
-					{ label: "Lease End", value: lease.endDate.toDateString() },
-					{ label: "Amount Paid", value: `${paymentRow.amount} BDT` },
-					{ label: "Transaction Id", value: executedResult.trxID },
-					{ label: "Paid At", value: executedResult.paymentExecuteTime },
-				]);
+				try {
+					const receiptPdf = await buildReceiptPdf([
+						{ label: "Receipt Type", value: "Booking Deposit" },
+						{ label: "Tenant Name", value: application.tenantProfile.name },
+						{ label: "Tenant Email", value: application.tenantProfile.email },
+						{ label: "Room", value: application.room.name },
+						{ label: "Lease Start", value: lease.startDate.toDateString() },
+						{ label: "Lease End", value: lease.endDate.toDateString() },
+						{ label: "Amount Paid", value: `${paymentRow.amount} BDT` },
+						{ label: "Transaction Id", value: executedResult.trxID },
+						{ label: "Paid At", value: executedResult.paymentExecuteTime },
+					]);
 
-				await sendTemplateEmail({
-					to: application.tenantProfile.email,
-					subject: "Your Booking Deposit Receipt - Housing & Roommate",
-					template: "payment-receipt",
-					data: { name: application.tenantProfile.name },
-					attachments: [
-						{ filename: "deposit-receipt.pdf", content: receiptPdf },
-					],
-				});
+					await sendTemplateEmail({
+						to: application.tenantProfile.email,
+						subject: "Your Booking Deposit Receipt - Housing & Roommate",
+						template: "payment-receipt",
+						data: { name: application.tenantProfile.name },
+						attachments: [
+							{ filename: "deposit-receipt.pdf", content: receiptPdf },
+						],
+					});
+				} catch (error) {
+					console.log("Deposit receipt email failed:", error);
+				}
 
-				await createNotification({
-					userId: application.tenantProfile.userId,
-					type: NotificationType.PAYMENT,
-					title: "Deposit paid ✅",
-					message: `Your booking deposit for "${application.room.name}" was received. Your lease is now active.`,
-					data: { leaseId: lease.id },
-				});
+				try {
+					await createNotification({
+						userId: application.tenantProfile.userId,
+						type: NotificationType.PAYMENT,
+						title: "Deposit paid ✅",
+						message: `Your booking deposit for "${application.room.name}" was received. Your lease is now active.`,
+						data: { leaseId: lease.id },
+					});
+				} catch (error) {
+					console.log("Deposit notification failed:", error);
+				}
 			}
 
 			return {
@@ -282,13 +292,19 @@ const paymentCallback = async (query: Record<string, any>) => {
 			handleInvoiceSuccess(tx, payment.id, executedResult),
 		);
 
-		await createNotification({
-			userId: result.invoice.lease.tenantProfile.userId,
-			type: NotificationType.PAYMENT,
-			title: "Invoice paid 💰",
-			message: `Your ${result.invoice.type.toLowerCase()} invoice of ৳${result.invoice.amount} was paid successfully.`,
-			data: { invoiceId: result.invoice.id },
-		});
+		// the invoice + payment are already committed PAID: a notification
+		// failure must not 500 the redirect
+		try {
+			await createNotification({
+				userId: result.invoice.lease.tenantProfile.userId,
+				type: NotificationType.PAYMENT,
+				title: "Invoice paid 💰",
+				message: `Your ${result.invoice.type.toLowerCase()} invoice of ৳${result.invoice.amount} was paid successfully.`,
+				data: { invoiceId: result.invoice.id },
+			});
+		} catch (error) {
+			console.log("Invoice-paid notification failed:", error);
+		}
 
 		return {
 			redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=success`,

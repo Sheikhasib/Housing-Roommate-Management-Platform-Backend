@@ -17,6 +17,16 @@ import { createNotification } from "../../utils/notification";
 import { sendTemplateEmail } from "../../utils/email";
 import type { ICreateUtilityBillPayload } from "./invoice.interface";
 
+// A payment in one of these states blocks opening a new bKash session for
+// the same invoice (PROCESSING = session in flight; PAID/REFUND_PENDING/
+// REFUNDED = money already moved). FAILED/CANCELLED sessions may be retried.
+const sessionBlockingPaymentStatuses: PaymentStatus[] = [
+	PaymentStatus.PROCESSING,
+	PaymentStatus.PAID,
+	PaymentStatus.REFUND_PENDING,
+	PaymentStatus.REFUNDED,
+];
+
 // TENANT: invoices belonging to my leases
 const getMyInvoices = async (user: RequestUser, query: IQuery) => {
 	const tenantProfile = await prisma.tenantProfile.findFirst({
@@ -279,6 +289,23 @@ const payInvoice = async (invoiceId: string, user: RequestUser) => {
 		throw new AppError(
 			httpStatus.CONFLICT,
 			`Invoice is already ${invoice.status.toLowerCase()}`,
+		);
+	}
+
+	// the invoice itself stays UNPAID while a session is in flight, so an
+	// existing live/completed payment must block a second session (otherwise
+	// two concurrent sessions could both charge the tenant at the gateway)
+	const existingPayment = await prisma.payment.findUnique({
+		where: { invoiceId: invoice.id },
+	});
+
+	if (
+		existingPayment &&
+		sessionBlockingPaymentStatuses.includes(existingPayment.status)
+	) {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			"A payment for this invoice is already in progress or completed",
 		);
 	}
 
