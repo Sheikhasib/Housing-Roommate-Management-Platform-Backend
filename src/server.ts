@@ -13,6 +13,7 @@ import {
 	seedSuperAdmin,
 	seedTesterAdmin,
 	seedTesterOwner,
+	seedTesterManager,
 	seedTesterTenant,
 } from "./app/utils/seed";
 
@@ -45,6 +46,7 @@ const main = async () => {
 		await seedSuperAdmin();
 		await seedTesterAdmin();
 		await seedTesterOwner();
+		await seedTesterManager();
 		await seedTesterTenant();
 
 		// 5. Background jobs

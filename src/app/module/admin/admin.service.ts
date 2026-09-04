@@ -35,6 +35,9 @@ const getAdminDashboardStats = async () => {
 	const totalOwners = await prisma.user.count({
 		where: { role: Role.OWNER, isDeleted: false },
 	});
+	const totalManagers = await prisma.user.count({
+		where: { role: Role.PROPERTY_MANAGER, isDeleted: false },
+	});
 	const totalAdmins = await prisma.user.count({
 		where: { role: { in: [Role.ADMIN, Role.SUPER_ADMIN] }, isDeleted: false },
 	});
@@ -104,6 +107,7 @@ const getAdminDashboardStats = async () => {
 		totalUsers,
 		totalTenants,
 		totalOwners,
+		totalManagers,
 		totalAdmins,
 		blockedUsers,
 		pendingOwnerVerifications,
@@ -171,6 +175,14 @@ const getAllUsers = async (query: IQuery) => {
 					isDeleted: true,
 				},
 			},
+			managerProfile: {
+				select: {
+					id: true,
+					contactNumber: true,
+					bio: true,
+					isDeleted: true,
+				},
+			},
 			_count: { select: { notifications: true } },
 		},
 	});
@@ -179,7 +191,7 @@ const getAllUsers = async (query: IQuery) => {
 
 	// never surface the profile of a soft-deleted user account
 	const data = users.map((user) => {
-		const { tenantProfile, ownerProfile, ...rest } = user;
+		const { tenantProfile, ownerProfile, managerProfile, ...rest } = user;
 
 		return {
 			...rest,
@@ -200,6 +212,15 @@ const getAllUsers = async (query: IQuery) => {
 							id: ownerProfile.id,
 							verificationStatus: ownerProfile.verificationStatus,
 							companyName: ownerProfile.companyName,
+						}
+					: null,
+			managerProfile: managerProfile?.isDeleted
+				? null
+				: managerProfile
+					? {
+							id: managerProfile.id,
+							contactNumber: managerProfile.contactNumber,
+							bio: managerProfile.bio,
 						}
 					: null,
 		};

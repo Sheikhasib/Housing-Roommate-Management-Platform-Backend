@@ -208,6 +208,95 @@ export const seedTesterOwner = async () => {
 	console.log("Tester Owner created with sample property & rooms.");
 };
 
+// Demo property manager, pre-assigned to the seed owner's property so the
+// delegation flows (spec 17) can be demonstrated immediately after login.
+export const seedTesterManager = async () => {
+	const email = config.tester_manager_email;
+
+	if (!email || !config.tester_manager_password) {
+		throw new AppError(
+			httpStatus.INTERNAL_SERVER_ERROR,
+			"Tester manager credentials missing in .env file!!!",
+		);
+	}
+
+	let user = await prisma.user.findUnique({
+		where: { email },
+		include: { managerProfile: true },
+	});
+
+	if (!user) {
+		await createUser({
+			name: config.tester_manager_name,
+			email,
+			password: config.tester_manager_password,
+			role: Role.PROPERTY_MANAGER,
+		});
+
+		user = await prisma.user.findUnique({
+			where: { email },
+			include: { managerProfile: true },
+		});
+	}
+
+	if (!user) {
+		throw new AppError(
+			httpStatus.INTERNAL_SERVER_ERROR,
+			"Failed to create tester manager",
+		);
+	}
+
+	if (!user.managerProfile) {
+		await prisma.managerProfile.create({
+			data: {
+				userId: user.id,
+				name: config.tester_manager_name,
+				email,
+				contactNumber: "+8801733333333",
+				bio: "On-site property manager handling viewings, applications and maintenance.",
+			},
+		});
+	}
+
+	// assign to the seed owner's first live property (idempotent)
+	const ownerProfile = await prisma.ownerProfile.findFirst({
+		where: { email: config.tester_owner_email, isDeleted: false },
+		include: {
+			properties: {
+				where: { isDeleted: false },
+				orderBy: { createdAt: "asc" },
+				take: 1,
+			},
+		},
+	});
+
+	const seedProperty = ownerProfile?.properties[0];
+
+	if (seedProperty) {
+		const managerProfile = await prisma.managerProfile.findUnique({
+			where: { userId: user.id },
+		});
+
+		if (managerProfile) {
+			await prisma.propertyManager.upsert({
+				where: {
+					unique_manager_per_property: {
+						propertyId: seedProperty.id,
+						managerId: managerProfile.id,
+					},
+				},
+				create: {
+					propertyId: seedProperty.id,
+					managerId: managerProfile.id,
+				},
+				update: {},
+			});
+		}
+	}
+
+	console.log("Tester Manager created (assigned to the seed property).");
+};
+
 // Demo tenant with a filled roommate-matching profile.
 export const seedTesterTenant = async () => {
 	const email = config.tester_tenant_email;

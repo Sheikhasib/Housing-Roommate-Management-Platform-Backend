@@ -19,4 +19,11 @@ router.get(
 	AnalyticsController.getOwnerAnalytics,
 );
 
+// Manager analytics (non-monetary, assigned properties only)
+router.get(
+	"/manager-analytics",
+	auth(Role.PROPERTY_MANAGER),
+	AnalyticsController.getManagerAnalytics,
+);
+
 export const AnalyticsRoutes = router;

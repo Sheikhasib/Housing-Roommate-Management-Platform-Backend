@@ -4,12 +4,12 @@ import {
 	InvoiceType,
 	LeaseStatus,
 	MaintenanceStatus,
-	NotificationType,
 	PaymentStatus,
 } from "../../../generated/prisma/enums";
 import { prisma } from "../../lib/prisma";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
+import { propertyManagerScope } from "../../utils/propertyAccess";
 import httpStatus from "http-status";
 
 // TENANT analytics
@@ -218,7 +218,93 @@ const getOwnerAnalytics = async (user: RequestUser) => {
 	};
 };
 
+// MANAGER analytics — non-monetary, scoped to the manager's assigned
+// properties (money stays with owners/admins; spec 16/17).
+const getManagerAnalytics = async (user: RequestUser) => {
+	const managerProfile = await prisma.managerProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
+	});
+
+	if (!managerProfile) {
+		throw new AppError(httpStatus.NOT_FOUND, "Manager profile not found");
+	}
+
+	const managedProperties = await prisma.property.count({
+		where: { isDeleted: false, ...propertyManagerScope(user.userId) },
+	});
+	const totalRooms = await prisma.room.count({
+		where: { isDeleted: false, property: propertyManagerScope(user.userId) },
+	});
+	const publishedRooms = await prisma.room.count({
+		where: {
+			isDeleted: false,
+			isPublished: true,
+			property: propertyManagerScope(user.userId),
+		},
+	});
+
+	// occupancy across the managed rooms
+	const agg = await prisma.room.aggregate({
+		where: { isDeleted: false, property: propertyManagerScope(user.userId) },
+		_sum: { bedCount: true, occupiedBeds: true },
+	});
+	const totalBeds = agg._sum.bedCount || 0;
+	const occupiedBeds = agg._sum.occupiedBeds || 0;
+
+	const activeLeases = await prisma.lease.count({
+		where: {
+			room: { property: propertyManagerScope(user.userId) },
+			status: LeaseStatus.ACTIVE,
+			isDeleted: false,
+		},
+	});
+	const pendingApplications = await prisma.application.count({
+		where: {
+			room: { property: propertyManagerScope(user.userId) },
+			status: ApplicationStatus.PENDING,
+			isDeleted: false,
+		},
+	});
+	const pendingViewings = await prisma.viewingRequest.count({
+		where: {
+			room: { property: propertyManagerScope(user.userId) },
+			status: "PENDING",
+			isDeleted: false,
+		},
+	});
+	const openMaintenance = await prisma.maintenanceRequest.count({
+		where: {
+			room: { property: propertyManagerScope(user.userId) },
+			status: { notIn: [MaintenanceStatus.RESOLVED, MaintenanceStatus.CLOSED] },
+			isDeleted: false,
+		},
+	});
+	const pendingUtilityInvoices = await prisma.invoice.count({
+		where: {
+			room: { property: propertyManagerScope(user.userId) },
+			type: InvoiceType.UTILITY,
+			status: InvoiceStatus.UNPAID,
+			isDeleted: false,
+		},
+	});
+
+	return {
+		managedProperties,
+		totalRooms,
+		publishedRooms,
+		totalBeds,
+		occupiedBeds,
+		occupancyRate: totalBeds ? Math.round((occupiedBeds / totalBeds) * 100) : 0,
+		activeLeases,
+		pendingApplications,
+		pendingViewings,
+		openMaintenance,
+		pendingUtilityInvoices,
+	};
+};
+
 export const AnalyticsServices = {
 	getTenantAnalytics,
 	getOwnerAnalytics,
+	getManagerAnalytics,
 };

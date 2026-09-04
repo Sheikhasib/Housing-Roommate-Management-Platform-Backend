@@ -32,7 +32,22 @@ const getOwnerAnalytics = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+// Manager analytics (non-monetary, assigned properties only)
+const getManagerAnalytics = catchAsync(async (req: Request, res: Response) => {
+	const user = req.user!;
+
+	const result = await AnalyticsServices.getManagerAnalytics(user);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Manager analytics fetched successfully",
+		data: result,
+	});
+});
+
 export const AnalyticsController = {
 	getTenantAnalytics,
 	getOwnerAnalytics,
+	getManagerAnalytics,
 };
