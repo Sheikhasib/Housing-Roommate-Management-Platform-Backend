@@ -24,8 +24,9 @@ npm run format:check   # Biome format ./src      (fix: npm run format:fix)
 - Controllers are thin: parse request, call service, reply with `sendResponse`. Business logic + Prisma live in services. Routes declare middleware (`auth(...)`, `validateRequest`, `upload`).
 - A canonical 5-file example lives at `src/app/module/roommate/`.
 - Middleware: `src/app/middleware/checkAuth.ts` (`auth(...roles)`), `validateRequest.ts`, `globalErrorHandler.ts`, `notFound.ts`.
-- Shared helpers: `src/app/utils/` (`AppError`, `catchAsync`, `sendResponse`, `jwt`, `writeAuditLog`, `createNotification`, `sendTemplateEmail`, `getVerifiedOwnerProfile`, `recalculateRoomStatus`, `uploadFileToCloudinary`), `src/app/lib/` (`prisma`, `redis`, `bKash`, `cloudinary`, `multer`, `rateLimiter`, `nodemailer`, `cron`, `googleAuth`).
-- Roles: SUPER_ADMIN, ADMIN, OWNER, TENANT. All route guards/imports use enums from `../../../generated/prisma/enums`.
+- Shared helpers: `src/app/utils/` (`AppError`, `catchAsync`, `sendResponse`, `jwt`, `writeAuditLog`, `createNotification`, `sendTemplateEmail`, `getVerifiedOwnerProfile`, `recalculateRoomStatus`, `uploadFileToCloudinary`, `propertyAccess`), `src/app/lib/` (`prisma`, `redis`, `bKash`, `cloudinary`, `multer`, `rateLimiter`, `nodemailer`, `cron`, `googleAuth`).
+- Roles: SUPER_ADMIN, ADMIN, OWNER, PROPERTY_MANAGER, TENANT. All route guards/imports use enums from `../../../generated/prisma/enums`.
+- Property delegation (spec 17): assigned PROPERTY_MANAGERs act as an owner's OPERATE-tier delegate via `utils/propertyAccess.ts` (`resolvePropertyRole`, `assertPropertyAccess`, `propertyScopeFilter`). Managers never touch money (no refunds/lease termination/payment visibility), never create/delete property/rooms, never assign managers.
 
 ## Code style (Biome — non-negotiable)
 
@@ -51,11 +52,11 @@ npm run format:check   # Biome format ./src      (fix: npm run format:fix)
 - **Redis**: cache hot reads (public room search `room-public:...` EX 60s, roommate matches `roommate-match:<id>` EX 300s, bKash tokens) in try/catch — must fail soft. OTP keys `register-otp|register-data|forgot-password-otp:<email>` EX 300s.
 - **Audit logs**: write `writeAuditLog` for approvals, status changes, role changes, terminations, refunds.
 - **Notifications**: `createNotification({ userId, type, title, message, data? })`; `NotificationType` is required.
-- **Owners**: before any property/room/lease write call `getVerifiedOwnerProfile(user.userId)` (requires APPROVED). Scope all queries by `req.user.userId`.
+- **Owners**: before any property/room/lease write call `getVerifiedOwnerProfile(user.userId)` (requires APPROVED). Scope all queries by `req.user.userId`. Managers scope via `propertyScopeFilter`; tenants must be VERIFIED before any payment session (deposit `pay-deposit`, invoice `pay`).
 - Use `select`/`include` (never wide `*`). List endpoints paginate/filter/sort via `IQuery` (`searchTerm`, `page`, `limit`, `sortBy`, `sortOrder`).
 - Cron (daily 00:10 rent invoices, 00:15 lease finalization, 00:20 application expiry) lives in `src/app/lib/cron.ts`; keep them idempotent.
 
 ## Verification notes
 
-- Server seeds demo accounts on boot: `superadmin@housing.com`, `admin@housing.com`, `owner@housing.com` (APPROVED, has a property + rooms), `tenant@housing.com` — creds in `.env`/`.env.example`.
+- Server seeds demo accounts on boot: `superadmin@housing.com`, `admin@housing.com`, `owner@housing.com` (APPROVED, has a property + rooms), `manager@housing.com` (assigned to the seed property), `tenant@housing.com` (VERIFIED) — creds in `.env`/`.env.example`.
 - If Redis/email are down the server still boots (fail-soft); OTP and payment flows need them working.
