@@ -20,8 +20,9 @@ model User {
   updatedAt          DateTime     @updatedAt
 
   // role based 1:1 profiles
-  tenantProfile TenantProfile?
-  ownerProfile  OwnerProfile?
+  tenantProfile  TenantProfile?
+  ownerProfile   OwnerProfile?
+  managerProfile ManagerProfile?
 
   notifications Notification[]
 

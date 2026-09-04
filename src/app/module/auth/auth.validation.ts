@@ -40,7 +40,14 @@ const ownerProfileSchema = z
 	})
 	.optional();
 
-// Common fields for both tenant & owner registration
+const managerProfileSchema = z
+	.object({
+		contactNumber: z.string("Not a string.").optional(),
+		bio: z.string("Not a string.").optional(),
+	})
+	.optional();
+
+// Common fields for tenant, owner & manager registration
 const registerZodSchema = z
 	.object({
 		name: z
@@ -50,7 +57,10 @@ const registerZodSchema = z
 		email: z.email("Not a valid email address."),
 		password: passwordSchema,
 		role: z
-			.enum(["TENANT", "OWNER"], "Role must be TENANT or OWNER.")
+			.enum(
+				["TENANT", "OWNER", "PROPERTY_MANAGER"],
+				"Role must be TENANT, OWNER or PROPERTY_MANAGER.",
+			)
 			.default("TENANT"),
 		profile: z.unknown().optional(),
 	})
@@ -71,6 +81,19 @@ const registerZodSchema = z
 
 		if (data.role === "OWNER") {
 			const result = ownerProfileSchema.safeParse(data.profile);
+			if (!result.success) {
+				result.error.issues.forEach((issue) => {
+					ctx.addIssue({
+						code: "custom",
+						path: issue.path,
+						message: issue.message,
+					});
+				});
+			}
+		}
+
+		if (data.role === "PROPERTY_MANAGER") {
+			const result = managerProfileSchema.safeParse(data.profile);
 			if (!result.success) {
 				result.error.issues.forEach((issue) => {
 					ctx.addIssue({

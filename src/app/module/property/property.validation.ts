@@ -73,9 +73,14 @@ const UpdateUnitZodSchema = z
 	})
 	.strict();
 
+const AssignManagerZodSchema = z.object({
+	managerEmail: z.email("managerEmail must be a valid email"),
+});
+
 export const PropertyValidation = {
 	CreatePropertyZodSchema,
 	UpdatePropertyZodSchema,
 	CreateUnitZodSchema,
 	UpdateUnitZodSchema,
+	AssignManagerZodSchema,
 };

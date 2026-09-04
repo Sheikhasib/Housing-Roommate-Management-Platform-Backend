@@ -217,6 +217,61 @@ const removePropertyImage = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+// Assign a manager to one of the caller's properties (OWNER)
+const assignManager = catchAsync(async (req: Request, res: Response) => {
+	const propertyId = req.params.propertyId as string;
+	const payload = req.body;
+	const user = req.user!;
+
+	const result = await PropertyServices.assignManager(
+		propertyId,
+		payload,
+		user,
+	);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Manager assigned successfully",
+		data: result,
+	});
+});
+
+// List the managers of a property (owner or assigned manager)
+const listManagers = catchAsync(async (req: Request, res: Response) => {
+	const propertyId = req.params.propertyId as string;
+	const user = req.user!;
+
+	const result = await PropertyServices.listManagers(propertyId, user);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Managers fetched successfully",
+		data: result,
+	});
+});
+
+// Revoke a manager's assignment (OWNER)
+const removeManager = catchAsync(async (req: Request, res: Response) => {
+	const propertyId = req.params.propertyId as string;
+	const managerId = req.params.managerId as string;
+	const user = req.user!;
+
+	const result = await PropertyServices.removeManager(
+		propertyId,
+		managerId,
+		user,
+	);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Manager removed successfully",
+		data: result,
+	});
+});
+
 export const PropertyController = {
 	createProperty,
 	getMyProperties,
@@ -230,4 +285,7 @@ export const PropertyController = {
 	deleteUnit,
 	uploadPropertyImages,
 	removePropertyImage,
+	assignManager,
+	listManagers,
+	removeManager,
 };

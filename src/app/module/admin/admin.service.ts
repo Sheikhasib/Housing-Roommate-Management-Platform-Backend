@@ -308,8 +308,9 @@ const updateUserRole = async (
 			omit: { password: true },
 		});
 
-		// role profile consistency: an account promoted to TENANT/OWNER gets the
-		// matching profile if it does not have one yet.
+		// role profile consistency: an account promoted to
+		// TENANT/OWNER/PROPERTY_MANAGER gets the matching profile if it does not
+		// have one yet.
 		if (payload.role === Role.TENANT) {
 			const existing = await tx.tenantProfile.findUnique({
 				where: { userId },
@@ -336,6 +337,21 @@ const updateUserRole = async (
 						name: targetUser.name,
 						email: targetUser.email,
 						verificationStatus: OwnerVerificationStatus.PENDING,
+					},
+				});
+			}
+		}
+
+		if (payload.role === Role.PROPERTY_MANAGER) {
+			const existing = await tx.managerProfile.findUnique({
+				where: { userId },
+			});
+			if (!existing) {
+				await tx.managerProfile.create({
+					data: {
+						userId,
+						name: targetUser.name,
+						email: targetUser.email,
 					},
 				});
 			}

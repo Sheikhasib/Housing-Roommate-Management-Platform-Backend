@@ -11,7 +11,13 @@ const router = Router();
 // Profile image route
 router.patch(
 	"/profile-image",
-	auth(Role.SUPER_ADMIN, Role.ADMIN, Role.OWNER, Role.TENANT),
+	auth(
+		Role.SUPER_ADMIN,
+		Role.ADMIN,
+		Role.OWNER,
+		Role.PROPERTY_MANAGER,
+		Role.TENANT,
+	),
 	upload.single("profileImage"),
 	UserController.uploadProfileImage,
 );
@@ -19,7 +25,13 @@ router.patch(
 // Update my display profile
 router.patch(
 	"/update-me",
-	auth(Role.SUPER_ADMIN, Role.ADMIN, Role.OWNER, Role.TENANT),
+	auth(
+		Role.SUPER_ADMIN,
+		Role.ADMIN,
+		Role.OWNER,
+		Role.PROPERTY_MANAGER,
+		Role.TENANT,
+	),
 	validateRequest(UserValidation.updateProfileZodSchema),
 	UserController.updateMyProfile,
 );

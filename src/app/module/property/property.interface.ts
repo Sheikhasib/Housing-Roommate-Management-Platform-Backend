@@ -35,3 +35,7 @@ export interface IUpdateUnitPayload {
 	description?: string;
 	floor?: number;
 }
+
+export interface IAssignManagerPayload {
+	managerEmail: string;
+}

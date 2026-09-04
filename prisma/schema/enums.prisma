@@ -6,6 +6,7 @@ enum Role {
   SUPER_ADMIN
   ADMIN
   OWNER
+  PROPERTY_MANAGER
   TENANT
 }
 

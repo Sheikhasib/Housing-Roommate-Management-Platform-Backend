@@ -25,6 +25,7 @@ import { InvoiceRoutes } from "./app/module/invoice/invoice.route";
 import { PaymentRoutes } from "./app/module/payment/payment.route";
 import { MaintenanceRoutes } from "./app/module/maintenance/maintenance.route";
 import { NotificationRoutes } from "./app/module/notification/notification.route";
+import { ManagerRoutes } from "./app/module/manager/manager.route";
 import { AdminRoutes } from "./app/module/admin/admin.route";
 import { AnalyticsRoutes } from "./app/module/analytics/analytics.route";
 
@@ -116,6 +117,9 @@ app.use("/api/v1/maintenance", MaintenanceRoutes);
 
 // Notification routes
 app.use("/api/v1/notification", NotificationRoutes);
+
+// Manager routes (delegated property operators)
+app.use("/api/v1/manager", ManagerRoutes);
 
 // Admin routes
 app.use("/api/v1/admin", AdminRoutes);

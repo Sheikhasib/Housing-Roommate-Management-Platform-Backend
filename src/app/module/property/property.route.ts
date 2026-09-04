@@ -33,17 +33,17 @@ router.get(
 // Public property listing (no auth)
 router.get("/public", PropertyController.getPublicProperties);
 
-// Property images - OWNER
+// Property images - OWNER (verified) or assigned MANAGER
 router.post(
 	"/:propertyId/images",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	upload.array("images", 10),
 	PropertyController.uploadPropertyImages,
 );
 
 router.delete(
 	"/:propertyId/images",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	PropertyController.removePropertyImage,
 );
 
@@ -59,10 +59,10 @@ router.post(
 // optionalAuth - guests and tenants always get the public view)
 router.get("/:propertyId", optionalAuth, PropertyController.getPropertyDetail);
 
-// Update property - OWNER
+// Update property - OWNER (verified) or assigned MANAGER
 router.patch(
 	"/:propertyId",
-	auth(Role.OWNER),
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
 	validateRequest(PropertyValidation.UpdatePropertyZodSchema),
 	PropertyController.updateProperty,
 );
@@ -83,5 +83,25 @@ router.patch(
 );
 
 router.delete("/unit/:unitId", auth(Role.OWNER), PropertyController.deleteUnit);
+
+// Manager delegation (spec 17) - assignment is OWNER-only (CONTROL tier)
+router.post(
+	"/:propertyId/managers",
+	auth(Role.OWNER),
+	validateRequest(PropertyValidation.AssignManagerZodSchema),
+	PropertyController.assignManager,
+);
+
+router.get(
+	"/:propertyId/managers",
+	auth(Role.OWNER, Role.PROPERTY_MANAGER),
+	PropertyController.listManagers,
+);
+
+router.delete(
+	"/:propertyId/managers/:managerId",
+	auth(Role.OWNER),
+	PropertyController.removeManager,
+);
 
 export const PropertyRoutes = router;

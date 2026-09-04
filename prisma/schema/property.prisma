@@ -28,6 +28,7 @@ model Property {
 
   units Unit[]
   rooms Room[]
+  managers PropertyManager[]
 
   @@index([ownerId], name: "idx_property_owner")
   @@index([city], name: "idx_property_city")

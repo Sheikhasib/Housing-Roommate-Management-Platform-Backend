@@ -59,6 +59,7 @@ const updateUserProfile = async (
 		select: {
 			tenantProfile: { select: { id: true } },
 			ownerProfile: { select: { id: true } },
+			managerProfile: { select: { id: true } },
 		},
 	});
 
@@ -100,6 +101,13 @@ const updateUserProfile = async (
 		if (existingUser.ownerProfile) {
 			await tx.ownerProfile.update({
 				where: { id: existingUser.ownerProfile.id },
+				data: { name: payload.name },
+			});
+		}
+
+		if (existingUser.managerProfile) {
+			await tx.managerProfile.update({
+				where: { id: existingUser.managerProfile.id },
 				data: { name: payload.name },
 			});
 		}

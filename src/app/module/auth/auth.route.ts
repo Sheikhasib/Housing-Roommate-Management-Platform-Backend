@@ -8,7 +8,7 @@ import { AuthValidation } from "./auth.validation";
 
 const router = Router();
 
-// Register route (role: TENANT | OWNER)
+// Register route (role: TENANT | OWNER | PROPERTY_MANAGER)
 router.post(
 	"/register",
 	authRateLimiter,
@@ -38,7 +38,13 @@ router.post("/logout", auth(), AuthController.logoutUser);
 // Get me route
 router.get(
 	"/me",
-	auth(Role.SUPER_ADMIN, Role.ADMIN, Role.OWNER, Role.TENANT),
+	auth(
+		Role.SUPER_ADMIN,
+		Role.ADMIN,
+		Role.OWNER,
+		Role.PROPERTY_MANAGER,
+		Role.TENANT,
+	),
 	AuthController.getMe,
 );
 

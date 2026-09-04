@@ -193,9 +193,13 @@ const verifyUserEmail = async (payload: IVerifyEmailPayload) => {
 		redisRegistrationData,
 	);
 
-	// role default TENANT; never allow an ADMIN to self-register
+	// role default TENANT; never allow an ADMIN/SUPER_ADMIN to self-register
 	const role =
-		registrationPayload.role === Role.OWNER ? Role.OWNER : Role.TENANT;
+		registrationPayload.role === Role.OWNER
+			? Role.OWNER
+			: registrationPayload.role === Role.PROPERTY_MANAGER
+				? Role.PROPERTY_MANAGER
+				: Role.TENANT;
 	const profile = registrationPayload.profile;
 
 	const transactionResult = await prisma.$transaction(async (tx) => {
@@ -237,9 +241,24 @@ const verifyUserEmail = async (payload: IVerifyEmailPayload) => {
 								},
 							}
 						: undefined,
+				managerProfile:
+					role === Role.PROPERTY_MANAGER
+						? {
+								create: {
+									name: registrationPayload.name,
+									email: registrationPayload.email,
+									contactNumber: profile?.contactNumber || "",
+									bio: profile?.bio,
+								},
+							}
+						: undefined,
 			},
 			omit: { password: true },
-			include: { tenantProfile: true, ownerProfile: true },
+			include: {
+				tenantProfile: true,
+				ownerProfile: true,
+				managerProfile: true,
+			},
 		});
 
 		return createdUser;
@@ -247,8 +266,14 @@ const verifyUserEmail = async (payload: IVerifyEmailPayload) => {
 
 	await redisClient.del(registrationDataKey);
 
-	const { tenantProfile, ownerProfile, ...user } = transactionResult;
-	const roleProfile = role === Role.TENANT ? tenantProfile : ownerProfile;
+	const { tenantProfile, ownerProfile, managerProfile, ...user } =
+		transactionResult;
+	const roleProfile =
+		role === Role.TENANT
+			? tenantProfile
+			: role === Role.OWNER
+				? ownerProfile
+				: managerProfile;
 
 	// welcome email
 	await sendTemplateEmail({
@@ -262,7 +287,7 @@ const verifyUserEmail = async (payload: IVerifyEmailPayload) => {
 		userId: user.id,
 		type: NotificationType.SYSTEM,
 		title: "Welcome aboard 👋",
-		message: `Hi ${user.name}, your ${role === Role.TENANT ? "tenant" : "owner"} account is ready to use.`,
+		message: `Hi ${user.name}, your ${role === Role.TENANT ? "tenant" : role === Role.OWNER ? "owner" : "property manager"} account is ready to use.`,
 	});
 
 	const tokens = createTokens(user);
@@ -324,6 +349,7 @@ const getMe = async (user: IRequestUser) => {
 		include: {
 			tenantProfile: true,
 			ownerProfile: true,
+			managerProfile: true,
 		},
 		omit: {
 			password: true,

@@ -1,16 +1,27 @@
 import httpStatus from "http-status";
-import { Role } from "../../../generated/prisma/enums";
+import {
+	NotificationType,
+	Role,
+	UserStatus,
+} from "../../../generated/prisma/enums";
 import type { PropertyWhereInput } from "../../../generated/prisma/models";
 import type { IQuery } from "../../interfaces";
 import { prisma } from "../../lib/prisma";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
+import { writeAuditLog } from "../../utils/audit";
 import {
 	deleteFromCloudinary,
 	uploadFileToCloudinary,
 } from "../../utils/cloudinaryUpload";
+import { createNotification } from "../../utils/notification";
 import { getVerifiedOwnerProfile } from "../../utils/ownerGuard";
+import {
+	propertyManagerScope,
+	resolvePropertyRole,
+} from "../../utils/propertyAccess";
 import type {
+	IAssignManagerPayload,
 	ICreatePropertyPayload,
 	ICreateUnitPayload,
 	IUpdatePropertyPayload,
@@ -18,6 +29,42 @@ import type {
 } from "./property.interface";
 
 type TImage = { url: string; publicId: string };
+
+// Resolve an OPERATE-tier principal for a property (spec 17): the verified
+// owner, or an assigned PROPERTY_MANAGER. Owners keep their exact legacy
+// behavior (verified-owner guard + ownerId-scoped lookup + generic 404).
+const resolveOperateProperty = async (
+	propertyId: string,
+	user: RequestUser,
+) => {
+	if (user.role === Role.PROPERTY_MANAGER) {
+		const property = await prisma.property.findFirst({
+			where: {
+				id: propertyId,
+				isDeleted: false,
+				...propertyManagerScope(user.userId),
+			},
+		});
+
+		if (!property) {
+			throw new AppError(httpStatus.NOT_FOUND, "Property not found");
+		}
+
+		return property;
+	}
+
+	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
+
+	const property = await prisma.property.findUnique({
+		where: { id: propertyId, ownerId: ownerProfile.id, isDeleted: false },
+	});
+
+	if (!property) {
+		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
+	}
+
+	return property;
+};
 
 // Owner creates a new property (building / listing)
 const createProperty = async (
@@ -226,6 +273,25 @@ const getPropertyDetail = async (propertyId: string, viewer?: RequestUser) => {
 		};
 	}
 
+	// Assigned managers get the full operational picture of their property
+	if (viewer.role === Role.PROPERTY_MANAGER) {
+		const assignment = await prisma.propertyManager.findFirst({
+			where: {
+				propertyId,
+				manager: { userId: viewer.userId, isDeleted: false },
+			},
+		});
+
+		if (!assignment) {
+			throw new AppError(
+				httpStatus.FORBIDDEN,
+				"You are not allowed to view this property",
+			);
+		}
+
+		return property;
+	}
+
 	// Owners can only inspect their own property, admins can inspect anything
 	if (viewer.role === Role.OWNER && property.owner.userId !== viewer.userId) {
 		throw new AppError(
@@ -237,21 +303,13 @@ const getPropertyDetail = async (propertyId: string, viewer?: RequestUser) => {
 	return property;
 };
 
-// Owner updates their own property
+// Owner or assigned manager updates a property (OPERATE tier)
 const updateProperty = async (
 	propertyId: string,
 	payload: IUpdatePropertyPayload,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
-
-	const existingProperty = await prisma.property.findUnique({
-		where: { id: propertyId, ownerId: ownerProfile.id, isDeleted: false },
-	});
-
-	if (!existingProperty) {
-		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
-	}
+	await resolveOperateProperty(propertyId, user);
 
 	return prisma.property.update({
 		where: { id: propertyId },
@@ -426,15 +484,7 @@ const uploadPropertyImages = async (
 	buffers: Buffer[],
 	user: RequestUser,
 ) => {
-	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
-
-	const property = await prisma.property.findUnique({
-		where: { id: propertyId, ownerId: ownerProfile.id, isDeleted: false },
-	});
-
-	if (!property) {
-		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
-	}
+	const property = await resolveOperateProperty(propertyId, user);
 
 	const uploadResults = await Promise.all(
 		buffers.map((buffer) => uploadFileToCloudinary(buffer, "property-images")),
@@ -461,15 +511,7 @@ const removePropertyImage = async (
 	publicId: string,
 	user: RequestUser,
 ) => {
-	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
-
-	const property = await prisma.property.findUnique({
-		where: { id: propertyId, ownerId: ownerProfile.id, isDeleted: false },
-	});
-
-	if (!property) {
-		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
-	}
+	const property = await resolveOperateProperty(propertyId, user);
 
 	const existingImages = (property.images as TImage[]) || [];
 	const targetImage = existingImages.find((img) => img.publicId === publicId);
@@ -491,6 +533,199 @@ const removePropertyImage = async (
 	return images;
 };
 
+// ---------------- Manager delegation (CONTROL: owner only) ----------------
+
+const managerListInclude = {
+	manager: {
+		select: {
+			id: true,
+			name: true,
+			email: true,
+			contactNumber: true,
+			bio: true,
+			user: { select: { imageUrl: true } },
+		},
+	},
+} as const;
+
+// Owner assigns a PROPERTY_MANAGER to one of their properties (spec 17).
+// Assignment is the trust boundary — no admin verification for managers.
+const assignManager = async (
+	propertyId: string,
+	payload: IAssignManagerPayload,
+	user: RequestUser,
+) => {
+	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
+
+	const property = await prisma.property.findUnique({
+		where: { id: propertyId, ownerId: ownerProfile.id, isDeleted: false },
+	});
+
+	if (!property) {
+		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
+	}
+
+	const managerEmail = payload.managerEmail.trim().toLowerCase();
+
+	const managerUser = await prisma.user.findUnique({
+		where: { email: managerEmail },
+		include: { managerProfile: true },
+	});
+
+	if (
+		!managerUser ||
+		managerUser.role !== Role.PROPERTY_MANAGER ||
+		!managerUser.managerProfile ||
+		managerUser.managerProfile.isDeleted ||
+		managerUser.isDeleted ||
+		managerUser.status !== UserStatus.ACTIVE
+	) {
+		throw new AppError(httpStatus.NOT_FOUND, "Manager not found");
+	}
+
+	const managerId = managerUser.managerProfile.id;
+
+	const existingAssignment = await prisma.propertyManager.findUnique({
+		where: {
+			unique_manager_per_property: { propertyId, managerId },
+		},
+	});
+
+	if (existingAssignment) {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			"Manager is already assigned to this property",
+		);
+	}
+
+	const assignment = await prisma.$transaction(async (tx) => {
+		const created = await tx.propertyManager.create({
+			data: { propertyId, managerId },
+		});
+
+		await writeAuditLog(
+			{
+				action: "MANAGER_ASSIGNED",
+				entity: "PropertyManager",
+				entityId: created.id,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: null,
+				after: { propertyId, managerId, managerEmail },
+			},
+			tx,
+		);
+
+		return created;
+	});
+
+	await createNotification({
+		userId: managerUser.id,
+		type: NotificationType.SYSTEM,
+		title: "New property assignment 🏢",
+		message: `You have been assigned to manage "${property.title}".`,
+		data: { propertyId, assignmentId: assignment.id },
+	});
+
+	return prisma.propertyManager.findUnique({
+		where: { id: assignment.id },
+		include: managerListInclude,
+	});
+};
+
+// Owner or an assigned manager lists the property's managers
+const listManagers = async (propertyId: string, user: RequestUser) => {
+	const property = await prisma.property.findUnique({
+		where: { id: propertyId, isDeleted: false },
+	});
+
+	if (!property) {
+		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
+	}
+
+	const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
+	const role = isAdmin ? "OWNER" : await resolvePropertyRole(user, propertyId);
+
+	if (!role) {
+		throw new AppError(
+			httpStatus.FORBIDDEN,
+			"You are not allowed to view this property",
+		);
+	}
+
+	return prisma.propertyManager.findMany({
+		where: { propertyId },
+		orderBy: { assignedAt: "asc" },
+		include: managerListInclude,
+	});
+};
+
+// Owner revokes a manager's assignment (CONTROL tier)
+const removeManager = async (
+	propertyId: string,
+	managerId: string,
+	user: RequestUser,
+) => {
+	const ownerProfile = await getVerifiedOwnerProfile(user.userId);
+
+	const property = await prisma.property.findUnique({
+		where: { id: propertyId, ownerId: ownerProfile.id, isDeleted: false },
+	});
+
+	if (!property) {
+		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
+	}
+
+	const assignment = await prisma.propertyManager.findFirst({
+		where: { propertyId, managerId },
+	});
+
+	if (!assignment) {
+		throw new AppError(httpStatus.NOT_FOUND, "Manager assignment not found");
+	}
+
+	const removed = await prisma.propertyManager.findUnique({
+		where: { id: assignment.id },
+		include: managerListInclude,
+	});
+
+	await prisma.$transaction(async (tx) => {
+		await tx.propertyManager.delete({ where: { id: assignment.id } });
+
+		await writeAuditLog(
+			{
+				action: "MANAGER_REMOVED",
+				entity: "PropertyManager",
+				entityId: assignment.id,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { propertyId, managerId },
+				after: null,
+			},
+			tx,
+		);
+	});
+
+	const managerProfile = await prisma.managerProfile.findUnique({
+		where: { id: managerId },
+		select: { userId: true },
+	});
+
+	if (managerProfile) {
+		await createNotification({
+			userId: managerProfile.userId,
+			type: NotificationType.SYSTEM,
+			title: "Property assignment removed 🏢",
+			message: `You are no longer managing "${property.title}".`,
+			data: { propertyId },
+		});
+	}
+
+	return removed;
+};
+
 export const PropertyServices = {
 	createProperty,
 	getMyProperties,
@@ -504,4 +739,7 @@ export const PropertyServices = {
 	deleteUnit,
 	uploadPropertyImages,
 	removePropertyImage,
+	assignManager,
+	listManagers,
+	removeManager,
 };

@@ -23,6 +23,7 @@ export interface IRegisterPayload {
 		lookingForRoommate?: boolean;
 		companyName?: string;
 		address?: string;
+		bio?: string;
 	};
 }
 

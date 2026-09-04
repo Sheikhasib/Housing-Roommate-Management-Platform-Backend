@@ -7,8 +7,8 @@ const UpdateUserStatusZodSchema = z.object({
 
 const UpdateUserRoleZodSchema = z.object({
 	role: z.enum(
-		["TENANT", "OWNER", "ADMIN"],
-		"Role must be TENANT, OWNER or ADMIN",
+		["TENANT", "OWNER", "PROPERTY_MANAGER", "ADMIN"],
+		"Role must be TENANT, OWNER, PROPERTY_MANAGER or ADMIN",
 	),
 	reason: z.string("Not a string.").optional(),
 });
