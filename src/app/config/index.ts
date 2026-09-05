@@ -47,4 +47,13 @@ export default {
 	bkash_app_key: process.env.BKASH_APP_KEY!,
 	bkash_app_secret: process.env.BKASH_APP_SECRET!,
 	bkash_callback_url: process.env.BKASH_CALLBACK_URL!,
+	ssl_commerz_store_id: process.env.SSL_COMMERZ_STORE_ID!,
+	ssl_commerz_store_passwd: process.env.SSL_COMMERZ_STORE_PASSWORD!,
+	sslcommerz_init_url: process.env.SSLCOMMERZ_INIT_URL!,
+	sslcommerz_validate_url: process.env.SSLCOMMERZ_VALIDATE_URL!,
+	stripe_secret_key: process.env.STRIPE_SECRET_KEY!,
+	stripe_webhook_secret: process.env.STRIPE_WEBHOOK_SECRET!,
+	stripe_currency: process.env.STRIPE_CURRENCY || "usd",
+	stripe_bdt_to_base: process.env.STRIPE_BDT_TO_BASE || "120",
+	backend_public_url: process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL!,
 };
