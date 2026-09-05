@@ -12,6 +12,9 @@ model Property {
   area        String?
   address     String?
   googleMapUrl String?
+  // optional map pin coordinates (display only; no geo search)
+  latitude    Decimal? @db.Decimal(9, 6)
+  longitude   Decimal? @db.Decimal(9, 6)
 
   amenities Json? // e.g. ["wifi", "lift", "parking", "generator"]
   images    Json? // [{ url: String, publicId: String }]

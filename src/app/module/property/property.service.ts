@@ -7,6 +7,7 @@ import {
 import type { PropertyWhereInput } from "../../../generated/prisma/models";
 import type { IQuery } from "../../interfaces";
 import { prisma } from "../../lib/prisma";
+import { redisClient } from "../../lib/redis";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { writeAuditLog } from "../../utils/audit";
@@ -83,6 +84,8 @@ const createProperty = async (
 			area: payload.area,
 			address: payload.address,
 			googleMapUrl: payload.googleMapUrl,
+			latitude: payload.latitude,
+			longitude: payload.longitude,
 			amenities: payload.amenities,
 			houseRules: payload.houseRules,
 			ownerId: ownerProfile.id,
@@ -180,6 +183,18 @@ const getPublicProperties = async (query: IQuery) => {
 		andConditions.push({ type: query.type });
 	}
 
+	const cacheKey = `property-public:${JSON.stringify({ andConditions, limit, page, sortBy, sortOrder })}`;
+
+	// try the redis cache first, fall back to the database on any failure
+	try {
+		const cached = await redisClient.get(cacheKey);
+		if (cached) {
+			return JSON.parse(cached);
+		}
+	} catch (error) {
+		console.log("Redis cache read failed (property search):", error);
+	}
+
 	const properties = await prisma.property.findMany({
 		where: { AND: andConditions },
 		take: limit,
@@ -196,6 +211,8 @@ const getPublicProperties = async (query: IQuery) => {
 			images: true,
 			amenities: true,
 			createdAt: true,
+			latitude: true,
+			longitude: true,
 			owner: {
 				select: {
 					id: true,
@@ -228,10 +245,21 @@ const getPublicProperties = async (query: IQuery) => {
 
 	const total = await prisma.property.count({ where: { AND: andConditions } });
 
-	return {
+	const result = {
 		data: properties,
 		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
 	};
+
+	// short TTL - search payloads go stale quickly after any owner edit
+	try {
+		await redisClient.set(cacheKey, JSON.stringify(result), {
+			expiration: { type: "EX", value: 60 },
+		});
+	} catch (error) {
+		console.log("Redis cache write failed (property search):", error);
+	}
+
+	return result;
 };
 
 // Single property detail. Public users only get published rooms, owners/admins
@@ -321,6 +349,8 @@ const updateProperty = async (
 			area: payload.area,
 			address: payload.address,
 			googleMapUrl: payload.googleMapUrl,
+			latitude: payload.latitude,
+			longitude: payload.longitude,
 			amenities: payload.amenities,
 			houseRules: payload.houseRules,
 		},

@@ -8,6 +8,8 @@ export interface ICreatePropertyPayload {
 	area?: string;
 	address?: string;
 	googleMapUrl?: string;
+	latitude?: number;
+	longitude?: number;
 	amenities?: string[];
 	houseRules?: string;
 }
@@ -20,6 +22,8 @@ export interface IUpdatePropertyPayload {
 	area?: string;
 	address?: string;
 	googleMapUrl?: string;
+	latitude?: number;
+	longitude?: number;
 	amenities?: string[];
 	houseRules?: string;
 }

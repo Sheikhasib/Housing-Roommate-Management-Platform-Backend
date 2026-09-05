@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums";
-import { upload } from "../../lib/multer";
+import { uploadImages } from "../../lib/multer";
 import { auth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { UserController } from "./user.controller";
@@ -18,7 +18,7 @@ router.patch(
 		Role.PROPERTY_MANAGER,
 		Role.TENANT,
 	),
-	upload.single("profileImage"),
+	uploadImages.single("profileImage"),
 	UserController.uploadProfileImage,
 );
 

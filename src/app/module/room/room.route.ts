@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums";
-import { upload } from "../../lib/multer";
+import { uploadImages } from "../../lib/multer";
 import { auth, optionalAuth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { RoomController } from "./room.controller";
@@ -53,7 +53,7 @@ router.delete(
 router.post(
 	"/:roomId/images",
 	auth(Role.OWNER, Role.PROPERTY_MANAGER),
-	upload.array("images", 10),
+	uploadImages.array("images", 10),
 	RoomController.uploadRoomImages,
 );
 

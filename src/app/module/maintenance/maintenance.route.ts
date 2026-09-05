@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums";
-import { upload } from "../../lib/multer";
+import { uploadImages } from "../../lib/multer";
 import { auth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { MaintenanceController } from "./maintenance.controller";
@@ -48,7 +48,7 @@ router.post(
 		Role.ADMIN,
 		Role.SUPER_ADMIN,
 	),
-	upload.single("image"),
+	uploadImages.single("image"),
 	MaintenanceController.uploadMaintenanceImage,
 );
 

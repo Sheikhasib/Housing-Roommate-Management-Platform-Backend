@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import httpStatus from "http-status";
+import { MulterError } from "multer";
 import { Prisma } from "../../generated/prisma/client";
 import config from "../config";
 import { AppError } from "../utils/AppError";
@@ -59,6 +60,24 @@ export const globalErrorHandler = async (
 	} else if (err instanceof Prisma.PrismaClientUnknownRequestError) {
 		statusCode = httpStatus.INTERNAL_SERVER_ERROR;
 		errorMessage = "Error occurred during query execution";
+		errors = [{ message: errorMessage }];
+	} else if (err instanceof MulterError) {
+		// upload guards: the real message always travels in errors[] so it
+		// survives the production message-masking below
+		if (err.code === "LIMIT_FILE_SIZE") {
+			statusCode = httpStatus.REQUEST_ENTITY_TOO_LARGE;
+			errorMessage =
+				"File too large. Maximum allowed file size is 8MB per file";
+		} else if (err.code === "LIMIT_FILE_COUNT") {
+			statusCode = httpStatus.BAD_REQUEST;
+			errorMessage = "Too many files uploaded";
+		} else if (err.code === "LIMIT_UNEXPECTED_FILE") {
+			statusCode = httpStatus.BAD_REQUEST;
+			errorMessage = `Unexpected file field${err.field ? ` "${err.field}"` : ""}. Check the upload field name.`;
+		} else {
+			statusCode = httpStatus.BAD_REQUEST;
+			errorMessage = err.message;
+		}
 		errors = [{ message: errorMessage }];
 	} else if (err instanceof AppError) {
 		errorMessage = err.message;

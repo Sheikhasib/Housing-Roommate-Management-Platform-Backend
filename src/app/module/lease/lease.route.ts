@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums";
-import { upload } from "../../lib/multer";
+import { uploadDocuments } from "../../lib/multer";
 import { auth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { LeaseController } from "./lease.controller";
@@ -43,7 +43,7 @@ router.post(
 router.post(
 	"/:leaseId/documents",
 	auth(Role.TENANT, Role.OWNER, Role.ADMIN, Role.SUPER_ADMIN),
-	upload.single("document"),
+	uploadDocuments.single("document"),
 	LeaseController.uploadLeaseDocument,
 );
 

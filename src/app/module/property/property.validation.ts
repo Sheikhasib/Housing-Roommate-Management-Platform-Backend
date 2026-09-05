@@ -23,6 +23,16 @@ const CreatePropertyZodSchema = z.object({
 		.url("googleMapUrl must be a valid URL")
 		.optional()
 		.or(z.literal("")),
+	latitude: z
+		.number("Latitude must be a number.")
+		.min(-90, "Latitude must be between -90 and 90")
+		.max(90, "Latitude must be between -90 and 90")
+		.optional(),
+	longitude: z
+		.number("Longitude must be a number.")
+		.min(-180, "Longitude must be between -180 and 180")
+		.max(180, "Longitude must be between -180 and 180")
+		.optional(),
 	amenities: z
 		.array(z.string(), "amenities must be an array of strings")
 		.optional(),
@@ -41,6 +51,16 @@ const UpdatePropertyZodSchema = z
 		area: z.string("Not a string.").optional(),
 		address: z.string("Not a string.").optional(),
 		googleMapUrl: z.string("Not a string.").optional().or(z.literal("")),
+		latitude: z
+			.number("Latitude must be a number.")
+			.min(-90, "Latitude must be between -90 and 90")
+			.max(90, "Latitude must be between -90 and 90")
+			.optional(),
+		longitude: z
+			.number("Longitude must be a number.")
+			.min(-180, "Longitude must be between -180 and 180")
+			.max(180, "Longitude must be between -180 and 180")
+			.optional(),
 		amenities: z
 			.array(z.string(), "amenities must be an array of strings")
 			.optional(),

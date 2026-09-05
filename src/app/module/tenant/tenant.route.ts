@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums";
-import { upload } from "../../lib/multer";
+import { uploadDocuments } from "../../lib/multer";
 import { auth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { TenantController } from "./tenant.controller";
@@ -23,7 +23,7 @@ router.patch(
 router.patch(
 	"/verification-document",
 	auth(Role.TENANT),
-	upload.single("document"),
+	uploadDocuments.single("document"),
 	TenantController.uploadVerificationDocument,
 );
 
