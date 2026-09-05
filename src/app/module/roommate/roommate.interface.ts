@@ -6,3 +6,17 @@ export interface ISendRoommateRequestPayload {
 export interface IRespondRoommateRequestPayload {
 	status: "ACCEPTED" | "DECLINED";
 }
+
+export interface IInviteMembershipPayload {
+	leaseId: string;
+	tenantEmail: string;
+	message?: string;
+}
+
+export interface IRespondMembershipPayload {
+	action: "ACCEPT" | "DECLINE";
+}
+
+export interface IRemoveMembershipPayload {
+	reason?: string;
+}

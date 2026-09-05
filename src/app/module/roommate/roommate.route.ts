@@ -51,4 +51,57 @@ router.delete(
 	RoommateController.removeRoommatePair,
 );
 
+// ---------------- Post-lease memberships (P3-Lite, spec 08) ----------------
+
+// Invite a tenant to share my active lease's room - TENANT (holder)
+router.post(
+	"/memberships/invite",
+	auth(Role.TENANT),
+	validateRequest(RoommateValidation.InviteMembershipZodSchema),
+	RoommateController.inviteMember,
+);
+
+// My memberships (holder or invited member) - TENANT
+router.get(
+	"/memberships/my",
+	auth(Role.TENANT),
+	RoommateController.getMyMemberships,
+);
+
+// The room's utility bills for a membership - TENANT (member/holder)
+router.get(
+	"/memberships/:membershipId/utility-bills",
+	auth(Role.TENANT),
+	RoommateController.getMembershipUtilityBills,
+);
+
+// Respond to a membership invitation - TENANT (invitee)
+router.patch(
+	"/memberships/:membershipId/respond",
+	auth(Role.TENANT),
+	validateRequest(RoommateValidation.RespondMembershipZodSchema),
+	RoommateController.respondToMembership,
+);
+
+// Leave an active membership - TENANT (holder or member)
+router.post(
+	"/memberships/:membershipId/leave",
+	auth(Role.TENANT),
+	RoommateController.leaveMembership,
+);
+
+// Remove a membership - holder / property owner / assigned manager / admin
+router.post(
+	"/memberships/:membershipId/remove",
+	auth(
+		Role.TENANT,
+		Role.OWNER,
+		Role.PROPERTY_MANAGER,
+		Role.ADMIN,
+		Role.SUPER_ADMIN,
+	),
+	validateRequest(RoommateValidation.RemoveMembershipZodSchema),
+	RoommateController.removeMembership,
+);
+
 export const RoommateRoutes = router;

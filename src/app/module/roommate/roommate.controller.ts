@@ -104,6 +104,114 @@ const removeRoommatePair = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+// Invite a tenant to share my active lease's room (HOLDER)
+const inviteMember = catchAsync(async (req: Request, res: Response) => {
+	const payload = req.body;
+	const user = req.user!;
+
+	const result = await RoommateServices.inviteMember(payload, user);
+
+	sendResponse(res, {
+		statusCode: httpStatus.CREATED,
+		success: true,
+		message: "Roommate invitation sent successfully",
+		data: result,
+	});
+});
+
+// My memberships (as holder or invited member)
+const getMyMemberships = catchAsync(async (req: Request, res: Response) => {
+	const user = req.user!;
+
+	const { data, meta } = await RoommateServices.getMyMemberships(
+		user,
+		req.query,
+	);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Memberships fetched successfully",
+		data,
+		meta,
+	});
+});
+
+// Accept or decline a membership invitation (invitee)
+const respondToMembership = catchAsync(async (req: Request, res: Response) => {
+	const membershipId = req.params.membershipId as string;
+	const payload = req.body;
+	const user = req.user!;
+
+	const result = await RoommateServices.respondToMembership(
+		membershipId,
+		payload,
+		user,
+	);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Membership responded successfully",
+		data: result,
+	});
+});
+
+// Leave an active membership (holder or member)
+const leaveMembership = catchAsync(async (req: Request, res: Response) => {
+	const membershipId = req.params.membershipId as string;
+	const user = req.user!;
+
+	const result = await RoommateServices.leaveMembership(membershipId, user);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Membership ended successfully",
+		data: result,
+	});
+});
+
+// Remove a membership (holder / owner / assigned manager / admin)
+const removeMembership = catchAsync(async (req: Request, res: Response) => {
+	const membershipId = req.params.membershipId as string;
+	const payload = req.body;
+	const user = req.user!;
+
+	const result = await RoommateServices.removeMembership(
+		membershipId,
+		payload,
+		user,
+	);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Membership removed successfully",
+		data: result,
+	});
+});
+
+// The room's utility bills for a membership (member or holder, trimmed)
+const getMembershipUtilityBills = catchAsync(
+	async (req: Request, res: Response) => {
+		const membershipId = req.params.membershipId as string;
+		const user = req.user!;
+
+		const result = await RoommateServices.getMembershipUtilityBills(
+			membershipId,
+			user,
+		);
+
+		sendResponse(res, {
+			statusCode: httpStatus.OK,
+			success: true,
+			message: "Room utility bills fetched successfully",
+			data: result,
+		});
+	},
+);
+
 export const RoommateController = {
 	getMyRoommateMatches,
 	sendRoommateRequest,
@@ -111,4 +219,10 @@ export const RoommateController = {
 	respondToRoommateRequest,
 	getMyRoommatePairs,
 	removeRoommatePair,
+	inviteMember,
+	getMyMemberships,
+	respondToMembership,
+	leaveMembership,
+	removeMembership,
+	getMembershipUtilityBills,
 };
