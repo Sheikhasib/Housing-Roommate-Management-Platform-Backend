@@ -26,9 +26,26 @@ const main = async () => {
 		console.log("Connected to the database successfully.");
 
 		// 2. Redis (caching & OTP store) - the server can still boot without it,
-		// but every caching/otp code path is written to fail soft.
+		// but every caching/otp code path is written to fail soft. connect()
+		// keeps retrying in the background (bounded strategy), so race it with
+		// a timeout instead of awaiting it forever; a late rejection of the
+		// connect promise is swallowed to avoid an unhandled-rejection crash.
 		try {
-			await redisClient.connect();
+			const connectPromise = redisClient.connect();
+			connectPromise.catch(() => {});
+
+			let bootTimeout: ReturnType<typeof setTimeout> | undefined;
+			await Promise.race([
+				connectPromise,
+				new Promise((_resolve, reject) => {
+					bootTimeout = setTimeout(
+						() => reject(new Error("Redis connection timed out after 10s")),
+						10_000,
+					);
+				}),
+			]);
+
+			clearTimeout(bootTimeout);
 			console.log("Connected to Redis successfully.");
 		} catch (error) {
 			console.log("Redis connection failed (continuing without cache):", error);
