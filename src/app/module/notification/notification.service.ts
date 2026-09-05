@@ -56,6 +56,11 @@ const markNotificationAsRead = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Notification not found");
 	}
 
+	// already read: return as-is so a repeated call never rewrites readAt
+	if (notification.isRead) {
+		return notification;
+	}
+
 	return prisma.notification.update({
 		where: { id: notificationId },
 		data: { isRead: true, readAt: new Date() },
