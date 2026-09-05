@@ -26,7 +26,7 @@ npm run format:check   # Biome format ./src      (fix: npm run format:fix)
 - Middleware: `src/app/middleware/checkAuth.ts` (`auth(...roles)`), `validateRequest.ts`, `globalErrorHandler.ts`, `notFound.ts`.
 - Shared helpers: `src/app/utils/` (`AppError`, `catchAsync`, `sendResponse`, `jwt`, `writeAuditLog`, `createNotification`, `sendTemplateEmail`, `getVerifiedOwnerProfile`, `recalculateRoomStatus`, `uploadFileToCloudinary`, `propertyAccess`), `src/app/lib/` (`prisma`, `redis`, `bKash`, `cloudinary`, `multer`, `rateLimiter`, `nodemailer`, `cron`, `googleAuth`).
 - Roles: SUPER_ADMIN, ADMIN, OWNER, PROPERTY_MANAGER, TENANT. All route guards/imports use enums from `../../../generated/prisma/enums`.
-- Property delegation (spec 17): assigned PROPERTY_MANAGERs act as an owner's OPERATE-tier delegate via `utils/propertyAccess.ts` (`resolvePropertyRole`, `assertPropertyAccess`, `propertyScopeFilter`). Managers never touch money (no refunds/lease termination/payment visibility), never create/delete property/rooms, never assign managers.
+- Property delegation (spec 17): assigned PROPERTY_MANAGERs act as an owner's OPERATE-tier delegate via `utils/propertyAccess.ts` (`resolvePropertyRole`, `propertyManagerScope`). Managers never touch money (no refunds/lease termination/payment visibility), never create/delete property/rooms, never assign managers.
 
 ## Code style (Biome — non-negotiable)
 
