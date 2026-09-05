@@ -174,6 +174,9 @@ export const createBkashPayment = async ({
 				intent: "sale",
 				merchantInvoiceNumber,
 			}),
+			// a hung gateway call must surface as an error instead of
+			// blocking the caller forever
+			signal: AbortSignal.timeout(30_000),
 		},
 	);
 
@@ -217,6 +220,9 @@ export const executeBkashPayment = async (paymentID: string) => {
 			body: JSON.stringify({
 				paymentID,
 			}),
+			// a hung gateway call must surface as an error instead of
+			// blocking the caller forever
+			signal: AbortSignal.timeout(30_000),
 		},
 	);
 

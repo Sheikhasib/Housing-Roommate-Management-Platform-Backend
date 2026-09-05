@@ -1,24 +1,25 @@
 import PDFDocument from "pdfkit";
 import httpStatus from "http-status";
 import {
-	ApplicationStatus,
-	InvoiceStatus,
-	LeaseStatus,
 	NotificationType,
+	PaymentGateway,
 	PaymentPurpose,
 	PaymentStatus,
 } from "../../../generated/prisma/enums";
-import { addMonths } from "date-fns";
 import config from "../../config";
 import type { IQuery } from "../../interfaces";
 import type { PaymentWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
-import { executeBkashPayment } from "../../lib/bKash";
+import { getAdapter, listEnabledGateways } from "../../lib/payments/registry";
+import {
+	markCancelled,
+	markFailed,
+	settleFromProvider,
+} from "../../lib/payments/settle";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { sendTemplateEmail } from "../../utils/email";
 import { createNotification } from "../../utils/notification";
-import { recalculateRoomStatus } from "../../utils/roomStatus";
 
 // Build a PDF receipt buffer (invoice style) for an email attachment.
 const buildReceiptPdf = async (
@@ -45,161 +46,10 @@ const buildReceiptPdf = async (
 	return pdfReadyPromise;
 };
 
-// ---- DEPOSIT payment succeeds -> create the lease & occupy the bed ----
-const handleDepositSuccess = async (
-	tx: any,
-	paymentId: string,
-	executedResult: any,
-) => {
-	const payment = await tx.payment.findUnique({
-		where: { id: paymentId },
-	});
-
-	if (!payment || payment.purpose !== PaymentPurpose.DEPOSIT) {
-		throw new AppError(httpStatus.NOT_FOUND, "Deposit payment not found");
-	}
-
-	// idempotent - ignore a repeated callback for an already confirmed payment
-	if (payment.status === PaymentStatus.PAID) {
-		return { alreadyPaid: true, applicationId: payment.applicationId };
-	}
-
-	const application = await tx.application.findUnique({
-		where: { id: payment.applicationId },
-		include: { room: true, tenantProfile: true },
-	});
-
-	if (!application || application.isDeleted) {
-		throw new AppError(httpStatus.NOT_FOUND, "Application not found");
-	}
-
-	if (application.status !== ApplicationStatus.APPROVED) {
-		throw new AppError(
-			httpStatus.CONFLICT,
-			"Application is no longer approved. Deposit cannot be confirmed.",
-		);
-	}
-
-	const existingLease = await tx.lease.findUnique({
-		where: { applicationId: application.id },
-	});
-
-	if (existingLease) {
-		// already moved in from a previous successful callback
-		return { alreadyPaid: true, applicationId: application.id };
-	}
-
-	const now = new Date();
-	const startDate =
-		application.moveInDate.getTime() > now.getTime()
-			? application.moveInDate
-			: now;
-
-	// optimistic capacity guard: only increment when a bed is actually free.
-	// This is what prevents two tenants from double-booking the same bed.
-	const roomUpdate = await tx.room.updateMany({
-		where: {
-			id: application.room.id,
-			occupiedBeds: { lt: application.room.bedCount },
-		},
-		data: { occupiedBeds: { increment: 1 } },
-	});
-
-	if (roomUpdate.count === 0) {
-		throw new AppError(
-			httpStatus.CONFLICT,
-			"No bed is available in this room anymore.",
-		);
-	}
-
-	const endDate = addMonths(startDate, application.leaseMonths);
-
-	const lease = await tx.lease.create({
-		data: {
-			applicationId: application.id,
-			tenantProfileId: application.tenantProfileId,
-			roomId: application.roomId,
-			startDate,
-			endDate,
-			monthlyRent: application.room.monthlyRent,
-			depositAmount: payment.amount,
-			status: LeaseStatus.ACTIVE,
-		},
-	});
-
-	await tx.payment.update({
-		where: { id: payment.id },
-		data: {
-			status: PaymentStatus.PAID,
-			bKashTrxId: executedResult.trxID,
-			paidAt: executedResult.paymentExecuteTime,
-			gatwayResponse: executedResult,
-		},
-	});
-
-	await recalculateRoomStatus(application.room.id, tx);
-
-	// notify the owner that a tenant is locked in
-	const ownerProfile = await tx.ownerProfile.findUnique({
-		where: { id: application.room.ownerId },
-	});
-
-	if (ownerProfile) {
-		await tx.notification.create({
-			data: {
-				userId: ownerProfile.userId,
-				type: NotificationType.LEASE,
-				title: "New tenant confirmed 🎉",
-				message: `${application.tenantProfile.name} paid the deposit for "${application.room.name}". Lease starts ${startDate.toDateString()}.`,
-				data: { leaseId: lease.id },
-			},
-		});
-	}
-
-	return { application, lease, payment, startDate };
-};
-
-// ---- RENT / UTILITY invoice payment succeeds ----
-const handleInvoiceSuccess = async (
-	tx: any,
-	paymentId: string,
-	executedResult: any,
-) => {
-	const payment = await tx.payment.findUnique({
-		where: { id: paymentId },
-		include: {
-			invoice: {
-				include: { lease: { include: { tenantProfile: true } } },
-			},
-		},
-	});
-
-	if (!payment || !payment.invoice) {
-		throw new AppError(httpStatus.NOT_FOUND, "Invoice payment not found");
-	}
-
-	if (payment.status !== PaymentStatus.PAID) {
-		await tx.invoice.update({
-			where: { id: payment.invoiceId },
-			data: { status: InvoiceStatus.PAID },
-		});
-
-		await tx.payment.update({
-			where: { id: payment.id },
-			data: {
-				status: PaymentStatus.PAID,
-				bKashTrxId: executedResult.trxID,
-				paidAt: executedResult.paymentExecuteTime,
-				gatwayResponse: executedResult,
-			},
-		});
-	}
-
-	return { invoice: payment.invoice };
-};
-
 // The bKash callback URL. bKash redirects the user here after they finish
-// (success / failure / cancel) on the payment page.
+// (success / failure / cancel) on the payment page. The flow resolves through
+// the gateway adapter + shared settle helpers with identical outcomes:
+// adapters own the provider HTTP, settle.ts owns the money state.
 const paymentCallback = async (query: Record<string, any>) => {
 	const paymentID = query.paymentID;
 	const status = query.status;
@@ -210,9 +60,12 @@ const paymentCallback = async (query: Record<string, any>) => {
 
 	const isSuccess = status === "success";
 
-	// find the local payment row by the gateway payment id (or invoice number)
+	// find the local payment row by the gateway payment id (or invoice
+	// number), scoped to bKash rows so a bKash redirect can never resolve
+	// another gateway's session
 	const payment = await prisma.payment.findFirst({
 		where: {
+			gateway: PaymentGateway.BKASH,
 			OR: [
 				{ bKashPaymentId: paymentID },
 				{ merchantInvoiceNumber: query.merchantInvoiceNumber },
@@ -227,21 +80,59 @@ const paymentCallback = async (query: Record<string, any>) => {
 	const isDeposit = payment.purpose === PaymentPurpose.DEPOSIT;
 
 	if (isSuccess) {
+		const successRedirect = isDeposit
+			? `${config.frontend_url}/dashboard/my-applications?status=success`
+			: `${config.frontend_url}/dashboard/my-invoices?status=success`;
+
+		// replayed redirect for an already-settled payment: nothing to query
+		// or settle (I-G3 no-op)
+		if (payment.status === PaymentStatus.PAID) {
+			return { redirectUrl: successRedirect };
+		}
+
 		// execute the payment to read its final state from the gateway. On a
 		// cancel/failure the payment was never executed, so we skip this call
 		// and only confirm the local FAILED/CANCELLED state below.
-		const executedResult = await executeBkashPayment(paymentID);
+		const verification = await getAdapter(PaymentGateway.BKASH).verifyAndSettle(
+			{ payment, providerPayload: query },
+		);
+
+		if (verification.outcome !== "SETTLED") {
+			// the session never completed at the gateway - no money moved
+			await markFailed(payment.id, verification.executedResult);
+
+			return {
+				redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=failure`,
+			};
+		}
+
+		const settleResult = await settleFromProvider({
+			paymentId: payment.id,
+			executedResult: verification.executedResult,
+			reportedAmountMinorUnits: verification.reportedAmountMinorUnits,
+			gateway: PaymentGateway.BKASH,
+		});
+
+		// I-G2 trip: the charged amount does not match the initiation
+		// snapshot - held PROCESSING for admin review, never auto-settled
+		if (settleResult.outcome === "AMOUNT_MISMATCH") {
+			return {
+				redirectUrl: `${config.frontend_url}?payment=error`,
+			};
+		}
 
 		if (isDeposit) {
-			const result = await prisma.$transaction(async (tx) =>
-				handleDepositSuccess(tx, payment.id, executedResult),
-			);
+			const result: any = settleResult.result;
 
 			// when a lease is freshly created, email the tenant the receipt.
 			// Everything is already committed: side-effect failures must not
 			// 500 the redirect (and skip one another).
-			if (!result.alreadyPaid) {
+			if (result && !result.alreadyPaid) {
 				const { application, lease, payment: paymentRow } = result;
+				const executedResult = verification.executedResult as {
+					trxID?: string;
+					paymentExecuteTime?: string;
+				};
 
 				try {
 					const receiptPdf = await buildReceiptPdf([
@@ -282,61 +173,40 @@ const paymentCallback = async (query: Record<string, any>) => {
 				}
 			}
 
-			return {
-				redirectUrl: `${config.frontend_url}/dashboard/my-applications?status=success`,
-			};
+			return { redirectUrl: successRedirect };
 		}
 
 		// RENT / UTILITY invoice payment
-		const result = await prisma.$transaction(async (tx) =>
-			handleInvoiceSuccess(tx, payment.id, executedResult),
-		);
+		const result: any = settleResult.result;
 
 		// the invoice + payment are already committed PAID: a notification
 		// failure must not 500 the redirect
-		try {
-			await createNotification({
-				userId: result.invoice.lease.tenantProfile.userId,
-				type: NotificationType.PAYMENT,
-				title: "Invoice paid 💰",
-				message: `Your ${result.invoice.type.toLowerCase()} invoice of ৳${result.invoice.amount} was paid successfully.`,
-				data: { invoiceId: result.invoice.id },
-			});
-		} catch (error) {
-			console.log("Invoice-paid notification failed:", error);
+		if (result) {
+			try {
+				await createNotification({
+					userId: result.invoice.lease.tenantProfile.userId,
+					type: NotificationType.PAYMENT,
+					title: "Invoice paid 💰",
+					message: `Your ${result.invoice.type.toLowerCase()} invoice of ৳${result.invoice.amount} was paid successfully.`,
+					data: { invoiceId: result.invoice.id },
+				});
+			} catch (error) {
+				console.log("Invoice-paid notification failed:", error);
+			}
 		}
 
-		return {
-			redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=success`,
-		};
+		return { redirectUrl: successRedirect };
 	}
 
 	if (status === "failure" || status === "cancel") {
-		const newStatus =
-			status === "failure" ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
-
-		await prisma.$transaction(async (tx) => {
-			await tx.payment.update({
-				where: { id: payment.id },
-				data: {
-					status: newStatus,
-					// no gateway execution happened - store the raw callback payload
-					gatwayResponse: query,
-				},
-			});
-
-			if (!isDeposit && payment.invoiceId) {
-				await tx.invoice.update({
-					where: { id: payment.invoiceId },
-					data: {
-						status:
-							status === "failure"
-								? InvoiceStatus.FAILED
-								: InvoiceStatus.UNPAID,
-					},
-				});
-			}
-		});
+		// no gateway execution happened - store the raw callback payload.
+		// Conditional writes (I-G4): a late failure/cancel can never clobber
+		// a payment that has meanwhile settled.
+		if (status === "failure") {
+			await markFailed(payment.id, query);
+		} else {
+			await markCancelled(payment.id, query);
+		}
 
 		return {
 			redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=${status}`,
@@ -347,6 +217,11 @@ const paymentCallback = async (query: Record<string, any>) => {
 	return {
 		redirectUrl: `${config.frontend_url}?payment=error`,
 	};
+};
+
+// Enabled payment gateways (public - powers the frontend payment buttons)
+const getGateways = () => {
+	return { gateways: listEnabledGateways() };
 };
 
 // TENANT: payments I made
@@ -501,6 +376,7 @@ const getSinglePayment = async (paymentId: string, user: RequestUser) => {
 
 export const PaymentServices = {
 	paymentCallback,
+	getGateways,
 	getMyPayments,
 	getAllPayments,
 	getSinglePayment,

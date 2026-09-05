@@ -12,7 +12,7 @@ import {
 import type { IQuery } from "../../interfaces";
 import type { InvoiceWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
-import { createBkashPayment } from "../../lib/bKash";
+import { getAdapter, parseGateway } from "../../lib/payments/registry";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { writeAuditLog } from "../../utils/audit";
@@ -311,8 +311,12 @@ const createUtilityBill = async (
 	return transactionResult;
 };
 
-// TENANT: pay one of my invoices via bKash
-const payInvoice = async (invoiceId: string, user: RequestUser) => {
+// TENANT: pay one of my invoices (any enabled gateway; bKash by default)
+const payInvoice = async (
+	invoiceId: string,
+	user: RequestUser,
+	payload: { gateway?: string },
+) => {
 	const tenantProfile = await prisma.tenantProfile.findFirst({
 		where: { userId: user.userId, isDeleted: false },
 	});
@@ -369,44 +373,85 @@ const payInvoice = async (invoiceId: string, user: RequestUser) => {
 		);
 	}
 
+	// gateway resolution happens before any write: an unknown/disabled
+	// gateway must never create a session or a payment row
+	const gateway = parseGateway(payload?.gateway ?? "bkash");
+	const adapter = getAdapter(gateway);
+
 	const purpose =
 		invoice.type === InvoiceType.RENT
 			? PaymentPurpose.RENT
 			: PaymentPurpose.UTILITY;
 
-	const bKashCreatePaymentResult = await createBkashPayment({
-		amount: invoice.amount.toString(),
-		payerReference: user.email,
+	// the gateway call happens outside any transaction (no DB locks are held
+	// while provider HTTP is in flight)
+	const session = await adapter.initiate({
 		merchantInvoiceNumber: invoice.id,
-		callbackPath: "/payment/callback",
+		purpose,
+		amount: invoice.amount.toString(),
+		description: `${invoice.type.toLowerCase()} invoice payment`,
+		payerEmail: user.email,
+		payerName: tenantProfile.name,
 	});
 
-	const payment = await prisma.payment.upsert({
-		where: { invoiceId: invoice.id },
-		update: {
-			status: PaymentStatus.PROCESSING,
-			purpose,
-			amount: invoice.amount.toString(),
-			merchantInvoiceNumber: invoice.id,
-			bKashPaymentId: bKashCreatePaymentResult.paymentID,
-			payerReference: user.email,
-			gatwayResponse: bKashCreatePaymentResult,
-		},
-		create: {
-			status: PaymentStatus.PROCESSING,
-			purpose,
-			amount: invoice.amount.toString(),
-			merchantInvoiceNumber: invoice.id,
-			bKashPaymentId: bKashCreatePaymentResult.paymentID,
-			payerReference: user.email,
-			gatwayResponse: bKashCreatePaymentResult,
-			invoiceId: invoice.id,
-		},
+	// create the payment row (or refresh an earlier failed attempt) with the
+	// provider-neutral refs + the charge snapshot for the settle-time amount
+	// check (I-G2), audited atomically with the upsert
+	const payment = await prisma.$transaction(async (tx) => {
+		const row = await tx.payment.upsert({
+			where: { invoiceId: invoice.id },
+			update: {
+				status: PaymentStatus.PROCESSING,
+				purpose,
+				amount: invoice.amount.toString(),
+				gateway,
+				merchantInvoiceNumber: invoice.id,
+				bKashPaymentId: session.providerPaymentId,
+				providerChargeCurrency: session.chargeCurrency,
+				providerChargeAmount: session.chargeAmountMinorUnits,
+				payerReference: user.email,
+				gatwayResponse: session.raw as any,
+			},
+			create: {
+				status: PaymentStatus.PROCESSING,
+				purpose,
+				amount: invoice.amount.toString(),
+				gateway,
+				merchantInvoiceNumber: invoice.id,
+				bKashPaymentId: session.providerPaymentId,
+				providerChargeCurrency: session.chargeCurrency,
+				providerChargeAmount: session.chargeAmountMinorUnits,
+				payerReference: user.email,
+				gatwayResponse: session.raw as any,
+				invoiceId: invoice.id,
+			},
+		});
+
+		await writeAuditLog(
+			{
+				action: "PAYMENT_INITIATED",
+				entity: "Payment",
+				entityId: row.id,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: existingPayment ? { status: existingPayment.status } : null,
+				after: {
+					gateway,
+					providerPaymentId: session.providerPaymentId,
+					amount: invoice.amount.toString(),
+					purpose,
+				},
+			},
+			tx,
+		);
+
+		return row;
 	});
 
 	return {
 		payment,
-		paymentUrl: bKashCreatePaymentResult.bkashURL,
+		paymentUrl: session.redirectUrl,
 	};
 };
 

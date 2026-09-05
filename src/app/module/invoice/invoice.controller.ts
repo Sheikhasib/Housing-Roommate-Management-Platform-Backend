@@ -54,12 +54,12 @@ const createUtilityBill = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
-// Pay an invoice via bKash (TENANT)
+// Pay an invoice (TENANT)
 const payInvoice = catchAsync(async (req: Request, res: Response) => {
 	const invoiceId = req.params.invoiceId as string;
 	const user = req.user!;
 
-	const result = await InvoiceServices.payInvoice(invoiceId, user);
+	const result = await InvoiceServices.payInvoice(invoiceId, user, req.body);
 
 	sendResponse(res, {
 		statusCode: httpStatus.OK,

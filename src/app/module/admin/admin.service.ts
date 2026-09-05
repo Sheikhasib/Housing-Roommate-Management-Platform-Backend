@@ -1,6 +1,7 @@
 import httpStatus from "http-status";
 import {
 	ApplicationStatus,
+	InvoiceStatus,
 	LeaseStatus,
 	MaintenanceStatus,
 	NotificationType,
@@ -16,6 +17,7 @@ import type {
 	UserWhereInput,
 } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
+import { settleFromProvider } from "../../lib/payments/settle";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { writeAuditLog } from "../../utils/audit";
@@ -23,6 +25,7 @@ import { sendTemplateEmail } from "../../utils/email";
 import { createNotification } from "../../utils/notification";
 import type {
 	IResolvePendingRefundPayload,
+	IResolvePendingSettlementPayload,
 	IReviewTenantVerificationPayload,
 	IUpdateUserRolePayload,
 	IUpdateUserStatusPayload,
@@ -546,6 +549,227 @@ const resolvePendingRefundPayment = async (
 	return updatedPayment;
 };
 
+// Payments stuck in PROCESSING: a gateway session whose final notification
+// never arrived (money possibly captured at the provider, nothing settled
+// locally). Admins verify the actual outcome in the provider's portal and
+// resolve them here - the success-side counterpart of the REFUND_PENDING
+// queue.
+const getPendingSettlementPayments = async (query: IQuery) => {
+	const limit = query.limit ? Number(query.limit) : 10;
+	const page = query.page ? Number(query.page) : 1;
+	const skip = (page - 1) * limit;
+
+	const where = { status: PaymentStatus.PROCESSING };
+
+	const payments = await prisma.payment.findMany({
+		where,
+		take: limit,
+		skip,
+		// oldest first: they have been stuck the longest
+		orderBy: { updatedAt: "asc" },
+		include: {
+			application: {
+				select: {
+					id: true,
+					status: true,
+					tenantProfile: { select: { name: true, email: true } },
+					lease: { select: { id: true, status: true } },
+				},
+			},
+			invoice: {
+				select: {
+					id: true,
+					type: true,
+					amount: true,
+					lease: {
+						select: {
+							tenantProfile: { select: { name: true, email: true } },
+						},
+					},
+				},
+			},
+		},
+	});
+
+	const total = await prisma.payment.count({ where });
+
+	return {
+		data: payments,
+		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+	};
+};
+
+// Resolve a stuck PROCESSING payment after verifying the provider's status.
+// SETTLED runs the exact same guarded, amount-checked settle path a live
+// gateway callback uses (lease/bed/invoice side effects included);
+// NOT_SETTLED downgrades to FAILED (retryable) so the tenant can start a
+// fresh session.
+const resolvePendingSettlementPayment = async (
+	paymentId: string,
+	payload: IResolvePendingSettlementPayload,
+	admin: RequestUser,
+) => {
+	const payment = await prisma.payment.findUnique({
+		where: { id: paymentId },
+		include: {
+			application: {
+				select: { tenantProfile: { select: { userId: true } } },
+			},
+			invoice: {
+				select: {
+					lease: { select: { tenantProfile: { select: { userId: true } } } },
+				},
+			},
+		},
+	});
+
+	if (!payment) {
+		throw new AppError(httpStatus.NOT_FOUND, "Payment not found");
+	}
+
+	if (payment.status !== PaymentStatus.PROCESSING) {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			`Payment is not awaiting settlement reconciliation (status: ${payment.status.toLowerCase()})`,
+		);
+	}
+
+	const settled = payload.outcome === "SETTLED";
+	const tenantUserId =
+		payment.application?.tenantProfile?.userId ??
+		payment.invoice?.lease?.tenantProfile?.userId ??
+		null;
+
+	const updatedPayment = settled
+		? // the admin confirmed the charge with the provider: settle through
+			// the same amount-checked settle path a live callback uses (I-G2
+			// compares against the snapshot the admin verified in the portal)
+			await prisma.$transaction(async (tx) => {
+				const settleResult = await settleFromProvider(
+					{
+						paymentId,
+						executedResult: {
+							trxID: payload.providerTrxId,
+							paymentExecuteTime: new Date().toISOString(),
+							resolvedBy: admin.email,
+							note: payload.note,
+							outcome: "SETTLED",
+						},
+						reportedAmountMinorUnits: payment.providerChargeAmount,
+						actorId: admin.userId,
+						actorEmail: admin.email,
+						actorRole: admin.role,
+						gateway: payment.gateway,
+					},
+					tx,
+				);
+
+				if (settleResult.outcome === "AMOUNT_MISMATCH") {
+					throw new AppError(
+						httpStatus.CONFLICT,
+						"Provider-charged amount does not match the initiated amount. Payment held for review.",
+					);
+				}
+
+				await writeAuditLog(
+					{
+						action: "PENDING_SETTLEMENT_RESOLVED",
+						entity: "Payment",
+						entityId: paymentId,
+						actorId: admin.userId,
+						actorEmail: admin.email,
+						actorRole: admin.role,
+						before: { status: PaymentStatus.PROCESSING },
+						after: {
+							outcome: "SETTLED",
+							status: PaymentStatus.PAID,
+							gateway: payment.gateway,
+							providerTrxId: payload.providerTrxId,
+							note: payload.note,
+						},
+					},
+					tx,
+				);
+
+				return tx.payment.findUniqueOrThrow({
+					where: { id: paymentId },
+				});
+			})
+		: await prisma.$transaction(async (tx) => {
+				// conditional write: only a still-PROCESSING payment can be resolved
+				const resolved = await tx.payment.updateMany({
+					where: { id: paymentId, status: PaymentStatus.PROCESSING },
+					data: {
+						status: PaymentStatus.FAILED,
+						gatwayResponse: {
+							resolvedBy: admin.email,
+							note: payload.note,
+							outcome: "NOT_SETTLED",
+						} as any,
+					},
+				});
+
+				if (resolved.count === 0) {
+					throw new AppError(
+						httpStatus.CONFLICT,
+						"Payment was already reconciled by another request",
+					);
+				}
+
+				// the invoice becomes payable again (mirrors the cancel path) so
+				// the tenant can retry with a fresh session
+				if (payment.invoiceId) {
+					await tx.invoice.update({
+						where: { id: payment.invoiceId },
+						data: { status: InvoiceStatus.UNPAID },
+					});
+				}
+
+				await writeAuditLog(
+					{
+						action: "PENDING_SETTLEMENT_RESOLVED",
+						entity: "Payment",
+						entityId: paymentId,
+						actorId: admin.userId,
+						actorEmail: admin.email,
+						actorRole: admin.role,
+						before: { status: PaymentStatus.PROCESSING },
+						after: {
+							outcome: "NOT_SETTLED",
+							status: PaymentStatus.FAILED,
+							gateway: payment.gateway,
+							note: payload.note,
+						},
+					},
+					tx,
+				);
+
+				return tx.payment.findUniqueOrThrow({
+					where: { id: paymentId },
+				});
+			});
+
+	// the resolution is committed: a notification failure must not 500 the
+	// admin request
+	if (tenantUserId) {
+		try {
+			await createNotification({
+				userId: tenantUserId,
+				type: NotificationType.PAYMENT,
+				title: settled ? "Payment confirmed ✅" : "Payment update",
+				message: settled
+					? "Your payment has been confirmed and settled successfully."
+					: "Your payment session could not be confirmed with the provider. No charge was settled - you can safely retry the payment.",
+				data: { paymentId },
+			});
+		} catch (error) {
+			console.log("Settlement-resolution notification failed:", error);
+		}
+	}
+
+	return updatedPayment;
+};
+
 // Read the audit trail with filters
 const getAuditLogs = async (query: IQuery) => {
 	const limit = query.limit ? Number(query.limit) : 20;
@@ -771,6 +995,8 @@ export const AdminServices = {
 	getAuditLogs,
 	getPendingRefundPayments,
 	resolvePendingRefundPayment,
+	getPendingSettlementPayments,
+	resolvePendingSettlementPayment,
 	getPendingTenantVerifications,
 	reviewTenantVerification,
 };

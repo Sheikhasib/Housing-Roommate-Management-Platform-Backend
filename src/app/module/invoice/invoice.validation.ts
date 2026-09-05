@@ -17,6 +17,13 @@ const CreateUtilityBillZodSchema = z.object({
 	description: z.string("Not a string.").optional(),
 });
 
+const PayInvoiceZodSchema = z.object({
+	gateway: z
+		.enum(["bkash", "sslcommerz", "stripe"], "Unsupported payment gateway")
+		.default("bkash"),
+});
+
 export const InvoiceValidation = {
 	CreateUtilityBillZodSchema,
+	PayInvoiceZodSchema,
 };

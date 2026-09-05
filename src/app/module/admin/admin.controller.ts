@@ -115,6 +115,45 @@ const resolvePendingRefundPayment = catchAsync(
 	},
 );
 
+// Payments awaiting settlement reconciliation
+const getPendingSettlementPayments = catchAsync(
+	async (req: Request, res: Response) => {
+		const { data, meta } = await AdminServices.getPendingSettlementPayments(
+			req.query,
+		);
+
+		sendResponse(res, {
+			statusCode: httpStatus.OK,
+			success: true,
+			message: "Pending settlement payments fetched successfully",
+			data,
+			meta,
+		});
+	},
+);
+
+// Resolve a pending settlement payment
+const resolvePendingSettlementPayment = catchAsync(
+	async (req: Request, res: Response) => {
+		const paymentId = req.params.paymentId as string;
+		const payload = req.body;
+		const user = req.user!;
+
+		const result = await AdminServices.resolvePendingSettlementPayment(
+			paymentId,
+			payload,
+			user,
+		);
+
+		sendResponse(res, {
+			statusCode: httpStatus.OK,
+			success: true,
+			message: "Pending settlement resolved successfully",
+			data: result,
+		});
+	},
+);
+
 // Pending tenant identity verifications
 const getPendingTenantVerifications = catchAsync(
 	async (req: Request, res: Response) => {
@@ -162,6 +201,8 @@ export const AdminController = {
 	getAuditLogs,
 	getPendingRefundPayments,
 	resolvePendingRefundPayment,
+	getPendingSettlementPayments,
+	resolvePendingSettlementPayment,
 	getPendingTenantVerifications,
 	reviewTenantVerification,
 };

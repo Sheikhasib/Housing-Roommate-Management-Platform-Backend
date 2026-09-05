@@ -55,5 +55,6 @@ export default {
 	stripe_webhook_secret: process.env.STRIPE_WEBHOOK_SECRET!,
 	stripe_currency: process.env.STRIPE_CURRENCY || "usd",
 	stripe_bdt_to_base: process.env.STRIPE_BDT_TO_BASE || "120",
-	backend_public_url: process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL!,
+	backend_public_url:
+		process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL!,
 };

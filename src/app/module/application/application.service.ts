@@ -11,7 +11,7 @@ import { isBefore } from "date-fns";
 import type { IQuery } from "../../interfaces";
 import type { ApplicationWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
-import { createBkashPayment } from "../../lib/bKash";
+import { getAdapter, parseGateway } from "../../lib/payments/registry";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { sendTemplateEmail } from "../../utils/email";
@@ -535,8 +535,13 @@ const reviewApplication = async (
 	return updatedApplication;
 };
 
-// TENANT: pay the booking deposit for an APPROVED application (bKash)
-const payDeposit = async (applicationId: string, user: RequestUser) => {
+// TENANT: pay the booking deposit for an APPROVED application (any enabled
+// gateway; bKash by default)
+const payDeposit = async (
+	applicationId: string,
+	user: RequestUser,
+	payload: { gateway?: string },
+) => {
 	const tenantProfile = await prisma.tenantProfile.findFirst({
 		where: { userId: user.userId, isDeleted: false },
 	});
@@ -603,45 +608,85 @@ const payDeposit = async (applicationId: string, user: RequestUser) => {
 		);
 	}
 
+	// gateway resolution happens before any write: an unknown/disabled
+	// gateway must never create a session or a payment row
+	const gateway = parseGateway(payload?.gateway ?? "bkash");
+	const adapter = getAdapter(gateway);
+
 	// the deposit = the room's booking deposit (fallback: one month rent)
 	const amount = application.room.bookingDeposit.greaterThan(0)
 		? application.room.bookingDeposit.toString()
 		: application.room.monthlyRent.toString();
 
-	const bKashCreatePaymentResult = await createBkashPayment({
-		amount,
-		payerReference: user.email,
+	// the gateway call happens outside any transaction (no DB locks are held
+	// while provider HTTP is in flight)
+	const session = await adapter.initiate({
 		merchantInvoiceNumber: application.id,
-		callbackPath: "/payment/callback",
+		purpose: PaymentPurpose.DEPOSIT,
+		amount,
+		description: `Booking deposit for ${application.room.name}`,
+		payerEmail: user.email,
+		payerName: tenantProfile.name,
 	});
 
-	// create the payment row (or refresh an earlier failed attempt)
-	const payment = await prisma.payment.upsert({
-		where: { applicationId: application.id },
-		update: {
-			status: PaymentStatus.PROCESSING,
-			purpose: PaymentPurpose.DEPOSIT,
-			amount,
-			merchantInvoiceNumber: application.id,
-			bKashPaymentId: bKashCreatePaymentResult.paymentID,
-			payerReference: user.email,
-			gatwayResponse: bKashCreatePaymentResult,
-		},
-		create: {
-			status: PaymentStatus.PROCESSING,
-			purpose: PaymentPurpose.DEPOSIT,
-			amount,
-			merchantInvoiceNumber: application.id,
-			bKashPaymentId: bKashCreatePaymentResult.paymentID,
-			payerReference: user.email,
-			gatwayResponse: bKashCreatePaymentResult,
-			applicationId: application.id,
-		},
+	// create the payment row (or refresh an earlier failed attempt) with the
+	// provider-neutral refs + the charge snapshot for the settle-time amount
+	// check (I-G2), audited atomically with the upsert
+	const payment = await prisma.$transaction(async (tx) => {
+		const row = await tx.payment.upsert({
+			where: { applicationId: application.id },
+			update: {
+				status: PaymentStatus.PROCESSING,
+				purpose: PaymentPurpose.DEPOSIT,
+				amount,
+				gateway,
+				merchantInvoiceNumber: application.id,
+				bKashPaymentId: session.providerPaymentId,
+				providerChargeCurrency: session.chargeCurrency,
+				providerChargeAmount: session.chargeAmountMinorUnits,
+				payerReference: user.email,
+				gatwayResponse: session.raw as any,
+			},
+			create: {
+				status: PaymentStatus.PROCESSING,
+				purpose: PaymentPurpose.DEPOSIT,
+				amount,
+				gateway,
+				merchantInvoiceNumber: application.id,
+				bKashPaymentId: session.providerPaymentId,
+				providerChargeCurrency: session.chargeCurrency,
+				providerChargeAmount: session.chargeAmountMinorUnits,
+				payerReference: user.email,
+				gatwayResponse: session.raw as any,
+				applicationId: application.id,
+			},
+		});
+
+		await writeAuditLog(
+			{
+				action: "PAYMENT_INITIATED",
+				entity: "Payment",
+				entityId: row.id,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: existingPayment ? { status: existingPayment.status } : null,
+				after: {
+					gateway,
+					providerPaymentId: session.providerPaymentId,
+					amount,
+					purpose: PaymentPurpose.DEPOSIT,
+				},
+			},
+			tx,
+		);
+
+		return row;
 	});
 
 	return {
 		payment,
-		paymentUrl: bKashCreatePaymentResult.bkashURL,
+		paymentUrl: session.redirectUrl,
 	};
 };
 

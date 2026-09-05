@@ -50,10 +50,11 @@ router.patch(
 	ApplicationController.reviewApplication,
 );
 
-// Pay the booking deposit (bKash) - TENANT
+// Pay the booking deposit (gateway of choice, default bKash) - TENANT
 router.post(
 	"/:applicationId/pay-deposit",
 	auth(Role.TENANT),
+	validateRequest(ApplicationValidation.PayDepositZodSchema),
 	ApplicationController.payDeposit,
 );
 

@@ -113,6 +113,12 @@ enum PaymentPurpose {
   UTILITY
 }
 
+enum PaymentGateway {
+  BKASH
+  SSLCOMMERZ
+  STRIPE
+}
+
 enum InvoiceType {
   RENT
   UTILITY

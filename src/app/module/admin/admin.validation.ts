@@ -22,6 +22,15 @@ const ResolvePendingRefundZodSchema = z.object({
 	note: z.string("Not a string.").optional(),
 });
 
+const ResolvePendingSettlementZodSchema = z.object({
+	outcome: z.enum(
+		["SETTLED", "NOT_SETTLED"],
+		"Outcome must be SETTLED or NOT_SETTLED",
+	),
+	providerTrxId: z.string("Not a string.").optional(),
+	note: z.string("Not a string.").optional(),
+});
+
 const ReviewTenantVerificationZodSchema = z
 	.object({
 		verificationStatus: z.enum(
@@ -44,5 +53,6 @@ export const AdminValidation = {
 	UpdateUserStatusZodSchema,
 	UpdateUserRoleZodSchema,
 	ResolvePendingRefundZodSchema,
+	ResolvePendingSettlementZodSchema,
 	ReviewTenantVerificationZodSchema,
 };

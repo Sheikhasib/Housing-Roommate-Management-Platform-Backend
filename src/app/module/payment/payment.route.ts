@@ -5,6 +5,9 @@ import { PaymentController } from "./payment.controller";
 
 const router = Router();
 
+// Enabled gateways - public (powers the frontend payment buttons)
+router.get("/gateways", PaymentController.getGateways);
+
 // bKash callback URL - no auth (hit by the gateway)
 // Full URL: {BKASH_CALLBACK_URL}/payment/callback
 router.get("/callback", PaymentController.paymentCallback);

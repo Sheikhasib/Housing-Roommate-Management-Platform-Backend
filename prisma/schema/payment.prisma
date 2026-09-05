@@ -1,29 +1,40 @@
-// Payment = a single bKash payment. A payment row is created when the payment
-// session is initiated and updated through the whole lifecycle
-// (UNPAID -> PROCESSING -> PAID / FAILED / CANCELLED). A paid deposit that is
-// being refunded is first reserved (PAID -> REFUND_PENDING) so exactly one
-// refund attempt can ever run, and only then marked REFUNDED.
+// Payment = a single gateway payment (bKash / SSLCommerz / Stripe). A payment
+// row is created when the payment session is initiated and updated through
+// the whole lifecycle (UNPAID -> PROCESSING -> PAID / FAILED / CANCELLED). A
+// paid deposit that is being refunded is first reserved (PAID ->
+// REFUND_PENDING) so exactly one refund attempt can ever run, and only then
+// marked REFUNDED.
 //
 // One payment belongs to exactly one business subject:
 //   - an Application  (DEPOSIT - locks the room and creates the Lease)
 //   - an Invoice      (RENT or UTILITY - settles a bill share)
+//
+// Provider-neutral storage lives under legacy column names (bKashPaymentId,
+// bKashTrxId, paidAt, gatwayResponse): every adapter reads/writes them
+// regardless of gateway (documented in lib/payments/types.ts). Renames were
+// deliberately skipped to keep the migration additive-only.
 
 model Payment {
   id String @id @default(uuid())
 
   status  PaymentStatus  @default(UNPAID)
   purpose PaymentPurpose @default(DEPOSIT)
+  gateway PaymentGateway @default(BKASH)
 
   amount   Decimal @db.Decimal(10, 2)
   currency String  @default("BDT")
 
-  paymentGateway        String @default("bKash")
+  // minor-units snapshot of what the provider is asked to charge (paisa /
+  // cents); the settle path verifies the provider-reported amount against it
+  providerChargeAmount   Int?
+  providerChargeCurrency String?
+
   merchantInvoiceNumber String @unique // applicationId or invoiceId
 
   bKashPaymentId String?
   bKashTrxId     String?
   payerReference String? // payer email or phone
-  paidAt         String? // payment time returned by bKash
+  paidAt         String? // payment time returned by the provider
 
   gatwayResponse Json?
 
@@ -44,5 +55,6 @@ model Payment {
 
   @@index([status], name: "idx_payment_status")
   @@index([purpose], name: "idx_payment_purpose")
+  @@index([gateway, bKashPaymentId], name: "idx_payment_gateway_provider")
   @@map("payments")
 }

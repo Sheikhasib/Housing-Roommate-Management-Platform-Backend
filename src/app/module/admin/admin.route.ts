@@ -59,6 +59,21 @@ router.post(
 	AdminController.resolvePendingRefundPayment,
 );
 
+// Payments stuck in PROCESSING (lost gateway notification) - ADMIN
+router.get(
+	"/payments/pending-settlements",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	AdminController.getPendingSettlementPayments,
+);
+
+// Resolve a pending settlement payment after checking the provider portal - ADMIN
+router.post(
+	"/payments/pending-settlements/:paymentId/resolve",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	validateRequest(AdminValidation.ResolvePendingSettlementZodSchema),
+	AdminController.resolvePendingSettlementPayment,
+);
+
 // Pending tenant identity verifications - ADMIN
 router.get(
 	"/tenant-verifications",

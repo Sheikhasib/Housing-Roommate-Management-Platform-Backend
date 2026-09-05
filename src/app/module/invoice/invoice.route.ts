@@ -25,7 +25,12 @@ router.get(
 	InvoiceController.getRoomInvoices,
 );
 
-// Pay an invoice (bKash) - TENANT
-router.post("/:invoiceId/pay", auth(Role.TENANT), InvoiceController.payInvoice);
+// Pay an invoice (gateway of choice, default bKash) - TENANT
+router.post(
+	"/:invoiceId/pay",
+	auth(Role.TENANT),
+	validateRequest(InvoiceValidation.PayInvoiceZodSchema),
+	InvoiceController.payInvoice,
+);
 
 export const InvoiceRoutes = router;

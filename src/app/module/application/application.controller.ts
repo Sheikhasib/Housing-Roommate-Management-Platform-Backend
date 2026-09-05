@@ -98,7 +98,11 @@ const payDeposit = catchAsync(async (req: Request, res: Response) => {
 	const applicationId = req.params.applicationId as string;
 	const user = req.user!;
 
-	const result = await ApplicationServices.payDeposit(applicationId, user);
+	const result = await ApplicationServices.payDeposit(
+		applicationId,
+		user,
+		req.body,
+	);
 
 	sendResponse(res, {
 		statusCode: httpStatus.OK,

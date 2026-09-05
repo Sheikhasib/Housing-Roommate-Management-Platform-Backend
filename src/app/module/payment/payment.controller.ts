@@ -4,6 +4,18 @@ import { catchAsync } from "../../utils/catchAsync";
 import { sendResponse } from "../../utils/sendResponse";
 import { PaymentServices } from "./payment.service";
 
+// Enabled payment gateways (public)
+const getGateways = catchAsync(async (req: Request, res: Response) => {
+	const result = PaymentServices.getGateways();
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Payment gateways fetched successfully",
+		data: result,
+	});
+});
+
 // bKash callback - redirects the browser after the payment page
 const paymentCallback = catchAsync(
 	async (req: Request, res: Response, next: NextFunction) => {
@@ -59,6 +71,7 @@ const getSinglePayment = catchAsync(async (req: Request, res: Response) => {
 });
 
 export const PaymentController = {
+	getGateways,
 	paymentCallback,
 	getMyPayments,
 	getAllPayments,

@@ -16,6 +16,12 @@ export interface IResolvePendingRefundPayload {
 	note?: string;
 }
 
+export interface IResolvePendingSettlementPayload {
+	outcome: "SETTLED" | "NOT_SETTLED";
+	providerTrxId?: string;
+	note?: string;
+}
+
 export interface IReviewTenantVerificationPayload {
 	verificationStatus: "APPROVED" | "REJECTED";
 	rejectionReason?: string;

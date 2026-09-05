@@ -35,7 +35,14 @@ const ReviewApplicationZodSchema = z
 		}
 	});
 
+const PayDepositZodSchema = z.object({
+	gateway: z
+		.enum(["bkash", "sslcommerz", "stripe"], "Unsupported payment gateway")
+		.default("bkash"),
+});
+
 export const ApplicationValidation = {
 	ApplyForRoomZodSchema,
 	ReviewApplicationZodSchema,
+	PayDepositZodSchema,
 };
