@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import httpStatus from "http-status";
+import type Stripe from "stripe";
 import {
 	NotificationType,
 	PaymentGateway,
@@ -10,6 +11,7 @@ import config from "../../config";
 import type { IQuery } from "../../interfaces";
 import type { PaymentWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
+import { getStripe } from "../../lib/stripe";
 import { getAdapter, listEnabledGateways } from "../../lib/payments/registry";
 import {
 	markCancelled,
@@ -502,9 +504,113 @@ const getSinglePayment = async (paymentId: string, user: RequestUser) => {
 	return payment;
 };
 
+// Stripe webhook (Prisma Press pattern). The signature verification
+// (`constructEvent` with the raw body) IS the trust anchor; only
+// `checkout.session.completed` (payment_status "paid") may settle and only
+// `checkout.session.expired` may cancel (while still PROCESSING - I-G4).
+// Everything else is acked without state change. Idempotency: the settle
+// path no-ops on PAID rows and markCancelled is a conditional write, so
+// provider retries are strict no-ops; the event id rides along in the raw
+// payload for diagnostics.
+const stripeWebhook = async (payload: Buffer, signature: string) => {
+	let event: Stripe.Event;
+	try {
+		event = getStripe().webhooks.constructEvent(
+			payload,
+			signature,
+			config.stripe_webhook_secret,
+		);
+	} catch (error: any) {
+		// invalid/missing signature: never process, never settle
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			`Stripe webhook signature verification failed: ${error?.message ?? "unknown error"}`,
+		);
+	}
+
+	if (
+		event.type !== "checkout.session.completed" &&
+		event.type !== "checkout.session.expired"
+	) {
+		// allowlisted set only; unknown events are acked without state change
+		return { handled: false, type: event.type };
+	}
+
+	const session = event.data.object as {
+		id: string;
+		payment_intent: string | null;
+		amount_total: number | null;
+		payment_status?: string;
+		created?: number;
+	};
+
+	// find the local row by the gateway-scoped provider ref (session id)
+	const payment = await prisma.payment.findFirst({
+		where: { gateway: PaymentGateway.STRIPE, bKashPaymentId: session.id },
+	});
+
+	if (!payment) {
+		return { handled: false, type: event.type };
+	}
+
+	if (event.type === "checkout.session.expired") {
+		// conditional write: only a still-PROCESSING row is cancelled
+		await markCancelled(payment.id, {
+			eventId: event.id,
+			type: event.type,
+			session,
+		});
+
+		return { handled: true, type: event.type, outcome: "CANCELLED" };
+	}
+
+	// checkout.session.completed - only a paid session settles (allowlist)
+	if (session.payment_status !== "paid") {
+		return { handled: false, type: event.type };
+	}
+
+	// replayed webhook for an already-settled payment: nothing to do (I-G3)
+	if (payment.status === PaymentStatus.PAID) {
+		return { handled: true, type: event.type, outcome: "ALREADY_SETTLED" };
+	}
+
+	// the adapter maps the session onto the provider-neutral fields; the
+	// event id rides along inside the persisted raw payload
+	const verification = await getAdapter(PaymentGateway.STRIPE).verifyAndSettle({
+		payment,
+		providerPayload: session,
+	});
+
+	const settleResult = await settleFromProvider({
+		paymentId: payment.id,
+		executedResult: { ...verification.executedResult, eventId: event.id },
+		reportedAmountMinorUnits: verification.reportedAmountMinorUnits,
+		gateway: PaymentGateway.STRIPE,
+	});
+
+	// mismatch stays PROCESSING + audited; ALREADY_SETTLED is a no-op
+	if (settleResult.outcome !== "SETTLED") {
+		return { handled: true, type: event.type, outcome: settleResult.outcome };
+	}
+
+	// side effects are the SHARED post-settle helpers (receipt PDF email +
+	// notifications, fail-soft, post-commit) - identical to bKash/SSLCommerz
+	if (payment.purpose === PaymentPurpose.DEPOSIT) {
+		await runDepositSettleSideEffects(
+			settleResult.result,
+			verification.executedResult,
+		);
+	} else {
+		await runInvoiceSettleSideEffects(settleResult.result);
+	}
+
+	return { handled: true, type: event.type, outcome: "SETTLED" };
+};
+
 export const PaymentServices = {
 	paymentCallback,
 	confirmSslcommerzPayment,
+	stripeWebhook,
 	getGateways,
 	getMyPayments,
 	getAllPayments,

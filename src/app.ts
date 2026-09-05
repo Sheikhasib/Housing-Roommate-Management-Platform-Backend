@@ -43,6 +43,15 @@ app.use(
 	}),
 );
 
+// Stripe webhook - raw body mounted BEFORE the JSON parsers: signature
+// verification (constructEvent) needs the exact request bytes, which
+// express.json() would have consumed (Prisma Press placement)
+app.post(
+	"/api/v1/payment/webhook/stripe",
+	express.raw({ type: "application/json" }),
+	PaymentController.stripeWebhook,
+);
+
 // Enable URL-encoded form data parsing
 app.use(express.urlencoded({ extended: true }));
 

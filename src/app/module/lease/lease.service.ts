@@ -4,6 +4,7 @@ import {
 	LeaseStatus,
 	MembershipStatus,
 	NotificationType,
+	PaymentGateway,
 	PaymentStatus,
 	Role,
 } from "../../../generated/prisma/enums";
@@ -12,6 +13,8 @@ import type { IQuery } from "../../interfaces";
 import type { LeaseWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
 import { BkashAmbiguousError, refundBkashPayment } from "../../lib/bKash";
+import { ProviderAmbiguousError } from "../../lib/payments/types";
+import { refundStripePayment } from "../../lib/payments/adapters/stripe";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { sendTemplateEmail } from "../../utils/email";
@@ -293,6 +296,39 @@ const terminateLease = async (
 	let refundResult: Record<string, unknown> | null = null;
 
 	if (shouldRefund && payment) {
+		// SSLCommerz has no automated refund path here (managed transaction
+		// API, out of scope): park the deposit in the admin refund queue -
+		// support refunds it manually from the SSLCommerz merchant panel and
+		// resolves it there - and stop the termination with clear guidance
+		if (payment.gateway === PaymentGateway.SSLCOMMERZ) {
+			const parked = await prisma.payment.updateMany({
+				where: { id: payment.id, status: PaymentStatus.PAID },
+				data: { status: PaymentStatus.REFUND_PENDING },
+			});
+
+			if (parked.count === 1) {
+				await writeAuditLog({
+					action: "REFUND_MANUAL_REQUIRED",
+					entity: "Payment",
+					entityId: payment.id,
+					actorId: user.userId,
+					actorEmail: user.email,
+					actorRole: user.role,
+					before: { status: PaymentStatus.PAID },
+					after: {
+						status: PaymentStatus.REFUND_PENDING,
+						gateway: PaymentGateway.SSLCOMMERZ,
+						reason,
+					},
+				});
+			}
+
+			throw new AppError(
+				httpStatus.CONFLICT,
+				"This deposit was paid via SSLCommerz, which has no automated refund. It has been queued for a manual refund by support - retry the termination once the refund is reconciled.",
+			);
+		}
+
 		// 2. reserve the refund with a conditional write: the PAID ->
 		// REFUND_PENDING flip can only ever succeed once, so concurrent
 		// terminations can never double-refund the same deposit
@@ -309,17 +345,38 @@ const terminateLease = async (
 		}
 
 		// 3. move the money OUTSIDE any transaction - no DB locks are held
-		// while the gateway call is in flight
+		// while the gateway call is in flight (dispatch on the payment's
+		// gateway; the reservation pattern is shared)
 		try {
-			refundResult = await refundBkashPayment({
-				paymentID: payment.bKashPaymentId || undefined,
-				trxID: payment.bKashTrxId || undefined,
-				amount: payment.amount.toString(),
-				sku: "Lease Termination (Deposit Refund)",
-				reason: reason,
-			});
+			if (payment.gateway === PaymentGateway.STRIPE) {
+				// refunds a Stripe Checkout charge through its payment intent;
+				// ledger amount recorded, provider payload kept raw
+				const refund = await refundStripePayment({
+					sessionId: payment.bKashPaymentId as string,
+					amount: payment.amount.toString(),
+					reason,
+				});
+
+				refundResult = {
+					refundTrxID: refund.id,
+					completedTime: new Date().toISOString(),
+					provider: "STRIPE",
+					...refund,
+				} as any;
+			} else {
+				refundResult = await refundBkashPayment({
+					paymentID: payment.bKashPaymentId || undefined,
+					trxID: payment.bKashTrxId || undefined,
+					amount: payment.amount.toString(),
+					sku: "Lease Termination (Deposit Refund)",
+					reason: reason,
+				});
+			}
 		} catch (error) {
-			if (error instanceof BkashAmbiguousError) {
+			if (
+				error instanceof BkashAmbiguousError ||
+				error instanceof ProviderAmbiguousError
+			) {
 				// the refund may have gone through: keep REFUND_PENDING so it is
 				// reconciled manually - retrying here could double-refund
 				await writeAuditLog({
@@ -330,12 +387,19 @@ const terminateLease = async (
 					actorEmail: user.email,
 					actorRole: user.role,
 					before: { status: PaymentStatus.PAID },
-					after: { status: PaymentStatus.REFUND_PENDING, reason },
+					after: {
+						status: PaymentStatus.REFUND_PENDING,
+						reason,
+						gateway: payment.gateway,
+					},
 				});
+
+				const providerName =
+					payment.gateway === PaymentGateway.STRIPE ? "Stripe" : "bKash";
 
 				throw new AppError(
 					httpStatus.BAD_GATEWAY,
-					"Lease termination aborted: bKash did not confirm the refund outcome. The refund is held for reconciliation and the lease stays active.",
+					`Lease termination aborted: ${providerName} did not confirm the refund outcome. The refund is held for reconciliation and the lease stays active.`,
 				);
 			}
 

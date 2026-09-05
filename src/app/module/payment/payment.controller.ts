@@ -103,11 +103,32 @@ const getSinglePayment = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+// Stripe webhook - raw body (signature verification needs the exact bytes,
+// so the route is mounted BEFORE the JSON parsers in app.ts)
+const stripeWebhook = catchAsync(async (req: Request, res: Response) => {
+	const signature = req.headers["stripe-signature"] as string;
+
+	const result = await PaymentServices.stripeWebhook(
+		req.body as Buffer,
+		signature,
+	);
+
+	// Stripe requires a 2xx ack; the standard error envelope would trigger
+	// endless provider retries
+	res.status(httpStatus.OK).json({
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Stripe webhook processed successfully",
+		data: result,
+	});
+});
+
 export const PaymentController = {
 	getGateways,
 	paymentCallback,
 	confirmPayment,
 	handleIpn,
+	stripeWebhook,
 	getMyPayments,
 	getAllPayments,
 	getSinglePayment,

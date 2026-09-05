@@ -86,3 +86,14 @@ export interface PaymentGatewayAdapter {
 		raw: unknown;
 	}>;
 }
+
+// A gateway call with no definitive answer (timeout, dropped connection).
+// The request may still have been processed by the provider, so callers must
+// reconcile instead of blindly retrying (refund-saga contract, shared with
+// the bKash-specific BkashAmbiguousError).
+export class ProviderAmbiguousError extends Error {
+	constructor(message: string, options?: { cause?: unknown }) {
+		super(message, options);
+		this.name = "ProviderAmbiguousError";
+	}
+}

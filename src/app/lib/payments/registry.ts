@@ -5,12 +5,17 @@ import { AppError } from "../../utils/AppError";
 import type { PaymentGatewayAdapter } from "./types";
 import { bkashAdapter } from "./adapters/bkash";
 import { sslcommerzAdapter } from "./adapters/sslcommerz";
+import { stripeAdapter } from "./adapters/stripe";
 
 // Gateway registry (master plan §2.1): adapters register themselves; the
 // registry resolves by gateway value and reports which gateways have their
 // credentials configured (env-driven, powers GET /payment/gateways).
 
-const adapters: PaymentGatewayAdapter[] = [bkashAdapter, sslcommerzAdapter];
+const adapters: PaymentGatewayAdapter[] = [
+	bkashAdapter,
+	sslcommerzAdapter,
+	stripeAdapter,
+];
 
 const byGateway = new Map<PaymentGateway, PaymentGatewayAdapter>(
 	adapters.map((adapter) => [adapter.gateway, adapter]),
