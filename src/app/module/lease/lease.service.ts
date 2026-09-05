@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import {
 	InvoiceStatus,
 	LeaseStatus,
+	MembershipStatus,
 	NotificationType,
 	PaymentStatus,
 	Role,
@@ -421,10 +422,61 @@ const terminateLease = async (
 			tx,
 		);
 
-		return { updated };
+		// P3: close live roommate memberships with the lease — same
+		// transaction, so no member is ever orphaned by a termination
+		const liveMemberships = await tx.roommateMembership.findMany({
+			where: {
+				leaseId,
+				status: { in: [MembershipStatus.PENDING, MembershipStatus.ACTIVE] },
+			},
+			select: {
+				id: true,
+				status: true,
+				tenantProfile: { select: { userId: true } },
+			},
+		});
+
+		if (liveMemberships.length > 0) {
+			await tx.roommateMembership.updateMany({
+				where: {
+					leaseId,
+					status: { in: [MembershipStatus.PENDING, MembershipStatus.ACTIVE] },
+				},
+				data: {
+					status: MembershipStatus.REMOVED,
+					removedAt: new Date(),
+					removedBy: user.userId,
+					removalReason: "Lease terminated",
+				},
+			});
+
+			for (const membership of liveMemberships) {
+				await writeAuditLog(
+					{
+						action: "MEMBERSHIP_REMOVED",
+						entity: "RoommateMembership",
+						entityId: membership.id,
+						actorId: user.userId,
+						actorEmail: user.email,
+						actorRole: user.role,
+						before: { status: membership.status },
+						after: {
+							status: MembershipStatus.REMOVED,
+							reason: "Lease terminated",
+						},
+					},
+					tx,
+				);
+			}
+		}
+
+		return {
+			updated,
+			memberUserIds: liveMemberships.map((m) => m.tenantProfile.userId),
+		};
 	});
 
-	const { updated: finalLease } = updatedLease;
+	const { updated: finalLease, memberUserIds } = updatedLease;
 	const { tenantProfile } = existingLease;
 
 	// the termination is already committed: side-effect failures must not
@@ -456,6 +508,22 @@ const terminateLease = async (
 		});
 	} catch (error) {
 		console.log("Lease termination email failed:", error);
+	}
+
+	// roommate members lose their arrangement with the lease (fail-soft)
+	for (const memberUserId of memberUserIds) {
+		try {
+			await createNotification({
+				userId: memberUserId,
+				type: NotificationType.ROOMMATE,
+				title: "Roommate membership ended 🚪",
+				message:
+					"The lease for your room was terminated, so your roommate membership has ended.",
+				data: { leaseId },
+			});
+		} catch (error) {
+			console.log("Lease termination member notification failed:", error);
+		}
 	}
 
 	return {

@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import {
 	LeaseStatus,
 	MaintenanceStatus,
+	MembershipStatus,
 	NotificationType,
 	Role,
 	UserStatus,
@@ -34,8 +35,9 @@ const createMaintenanceRequest = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Tenant profile not found");
 	}
 
-	// only tenants with an active lease on the room may report maintenance
-	const activeLease = await prisma.lease.findFirst({
+	// only tenants with an active lease on the room may report maintenance;
+	// an ACTIVE roommate member qualifies through the holder's lease (P3)
+	let activeLease = await prisma.lease.findFirst({
 		where: {
 			roomId: payload.roomId,
 			tenantProfileId: tenantProfile.id,
@@ -44,6 +46,25 @@ const createMaintenanceRequest = async (
 		},
 		include: { room: { include: { property: { include: { owner: true } } } } },
 	});
+
+	if (!activeLease) {
+		activeLease = await prisma.lease.findFirst({
+			where: {
+				roomId: payload.roomId,
+				status: LeaseStatus.ACTIVE,
+				isDeleted: false,
+				memberships: {
+					some: {
+						tenantProfileId: tenantProfile.id,
+						status: MembershipStatus.ACTIVE,
+					},
+				},
+			},
+			include: {
+				room: { include: { property: { include: { owner: true } } } },
+			},
+		});
+	}
 
 	if (!activeLease) {
 		throw new AppError(

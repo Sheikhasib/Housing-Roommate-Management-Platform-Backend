@@ -4,9 +4,12 @@ import {
 	ApplicationStatus,
 	InvoiceType,
 	LeaseStatus,
+	MembershipStatus,
+	NotificationType,
 } from "../../generated/prisma/enums";
 import { prisma } from "./prisma";
 import { writeAuditLog } from "../utils/audit";
+import { createNotification } from "../utils/notification";
 import { recalculateRoomStatus } from "../utils/roomStatus";
 
 // Applications that stay PENDING for longer than 14 days are auto-expired so
@@ -150,6 +153,52 @@ export const finalizeExpiredLeases = async () => {
 				tx,
 			);
 
+			// P3: close live roommate memberships with the lease — same
+			// transaction, so no member is ever orphaned by a completion
+			const liveMemberships = await tx.roommateMembership.findMany({
+				where: {
+					leaseId: lease.id,
+					status: { in: [MembershipStatus.PENDING, MembershipStatus.ACTIVE] },
+				},
+				select: {
+					id: true,
+					status: true,
+					tenantProfile: { select: { userId: true } },
+				},
+			});
+
+			if (liveMemberships.length > 0) {
+				await tx.roommateMembership.updateMany({
+					where: {
+						leaseId: lease.id,
+						status: { in: [MembershipStatus.PENDING, MembershipStatus.ACTIVE] },
+					},
+					data: {
+						status: MembershipStatus.REMOVED,
+						removedAt: new Date(),
+						removedBy: "system-cron",
+						removalReason: "Lease completed",
+					},
+				});
+
+				for (const membership of liveMemberships) {
+					await writeAuditLog(
+						{
+							action: "MEMBERSHIP_REMOVED",
+							entity: "RoommateMembership",
+							entityId: membership.id,
+							actorRole: "SYSTEM",
+							before: { status: membership.status },
+							after: {
+								status: MembershipStatus.REMOVED,
+								reason: "Lease completed",
+							},
+						},
+						tx,
+					);
+				}
+			}
+
 			// release the occupied bed, if the room still counts it
 			if (room && room.occupiedBeds > 0) {
 				await tx.room.update({
@@ -160,11 +209,31 @@ export const finalizeExpiredLeases = async () => {
 				await recalculateRoomStatus(room.id, tx);
 			}
 
-			return updatedLease;
+			return {
+				lease: updatedLease,
+				memberUserIds: liveMemberships.map((m) => m.tenantProfile.userId),
+			};
 		});
 
+		// members lose their arrangement with the completed lease (fail-soft,
+		// never retried — the closure itself is already committed)
+		for (const memberUserId of transactionResult.memberUserIds) {
+			try {
+				await createNotification({
+					userId: memberUserId,
+					type: NotificationType.ROOMMATE,
+					title: "Roommate membership ended 🚪",
+					message:
+						"The lease for your room has ended, so your roommate membership has ended.",
+					data: { leaseId: lease.id },
+				});
+			} catch (error) {
+				console.log("Cron: member notification failed:", error);
+			}
+		}
+
 		console.log(
-			`Cron: lease ${transactionResult.id} completed (end date passed).`,
+			`Cron: lease ${transactionResult.lease.id} completed (end date passed).`,
 		);
 	}
 };
