@@ -137,8 +137,23 @@ const getOwnerLeases = async (user: RequestUser, query: IQuery) => {
 
 	const total = await prisma.lease.count({ where: { AND: andConditions } });
 
+	// managers hold OPERATE rights only: the payment ledger (deposit status,
+	// bKash ids, gateway payloads) must never reach them (spec 17)
+	const data =
+		user.role === Role.PROPERTY_MANAGER
+			? leases.map((lease) => ({
+					...lease,
+					application: lease.application
+						? (() => {
+								const { payment, ...applicationRest } = lease.application;
+								return applicationRest;
+							})()
+						: lease.application,
+				}))
+			: leases;
+
 	return {
-		data: leases,
+		data,
 		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
 	};
 };
@@ -193,6 +208,13 @@ const getLeaseDetail = async (leaseId: string, user: RequestUser) => {
 			httpStatus.FORBIDDEN,
 			"You are not allowed to view this lease",
 		);
+	}
+
+	// managers are view-only AND money-blind: strip the payment ledger
+	// (spec 17 — no payment visibility for PROPERTY_MANAGER)
+	if (user.role === Role.PROPERTY_MANAGER && lease.application) {
+		const { payment, ...applicationRest } = lease.application;
+		return { ...lease, application: applicationRest };
 	}
 
 	return lease;

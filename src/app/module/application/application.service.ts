@@ -295,8 +295,15 @@ const getOwnerApplications = async (user: RequestUser, query: IQuery) => {
 		where: { AND: andConditions },
 	});
 
+	// managers may review applications but never see the deposit payment
+	// ledger (bKash ids, gateway payloads) — spec 17 money isolation
+	const data =
+		user.role === Role.PROPERTY_MANAGER
+			? applications.map(({ payment, ...applicationRest }) => applicationRest)
+			: applications;
+
 	return {
-		data: applications,
+		data,
 		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
 	};
 };
@@ -372,6 +379,12 @@ const getApplicationDetail = async (
 			httpStatus.FORBIDDEN,
 			"You are not allowed to view this application",
 		);
+	}
+
+	// managers are money-blind: strip the deposit payment ledger (spec 17)
+	if (user.role === Role.PROPERTY_MANAGER) {
+		const { payment, ...applicationRest } = application;
+		return applicationRest;
 	}
 
 	return application;

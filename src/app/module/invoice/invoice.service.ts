@@ -156,8 +156,15 @@ const getRoomInvoices = async (
 
 	const total = await prisma.invoice.count({ where: { AND: andConditions } });
 
+	// managers may see the billing picture but never the payment ledger
+	// (bKash ids, gateway payloads) — spec 17 money isolation
+	const data =
+		user.role === Role.PROPERTY_MANAGER
+			? invoices.map(({ payment, ...invoiceRest }) => invoiceRest)
+			: invoices;
+
 	return {
-		data: invoices,
+		data,
 		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
 	};
 };
