@@ -844,6 +844,13 @@ const respondToMembership = async (
 
 	const updatedMembership = await prisma.$transaction(async (tx) => {
 		if (isAccept) {
+			// Serialize competing accepts (and lease termination, whose UPDATE
+			// takes the same row lock) on the lease row: the cap check + write
+			// must be atomic ACROSS transactions, not just within this one —
+			// two PENDING invitees could otherwise both pass the count under
+			// READ COMMITTED and both become ACTIVE.
+			await tx.$queryRaw`SELECT id FROM "leases" WHERE "id" = ${membership.leaseId} FOR UPDATE`;
+
 			// cap re-check inside the same transaction as the write
 			const activeMembers = await tx.roommateMembership.count({
 				where: {
