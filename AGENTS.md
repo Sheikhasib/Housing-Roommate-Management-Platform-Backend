@@ -47,7 +47,7 @@ npm run format:check   # Biome format ./src      (fix: npm run format:fix)
 
 - **Soft deletes**: `isDeleted`/`deletedAt` on long-lived models; always filter `isDeleted: false`.
 - **Transactions**: wrap multi-step, money, or occupancy writes in `prisma.$transaction`. Prevent double-booking with conditional writes (e.g. `room.updateMany({ where: { occupiedBeds: { lt: bedCount } } }, { occupiedBeds: { increment: 1 } })`).
-- **Occupancy**: rooms track `bedCount`/`occupiedBeds`; one ACTIVE lease = one bed. After any occupancy change call `recalculateRoomStatus(roomId, tx)` (respects MAINTENANCE).
+- **Occupancy**: rooms track `bedCount`/`occupiedBeds`; one ACTIVE lease = one bed. After any occupancy change call `recalculateRoomStatus(roomId, tx)` (respects MAINTENANCE). Post-lease roommate memberships (spec 08) are people, not beds: they never touch occupancy counters and never write Payment/Invoice; max 1 ACTIVE member per lease; lease termination + cron completion must cascade-close live memberships in the same transaction.
 - **Money**: all amounts `Decimal(10,2)`. Payment/invoice statuses change **only** via the public bKash callback (`GET /api/v1/payment/callback`) — never set PAID manually. Initiation upserts a PROCESSING Payment keyed on `applicationId` or `invoiceId`.
 - **Redis**: cache hot reads (public room search `room-public:...` and property search `property-public:...` EX 60s, roommate matches `roommate-match:<id>` EX 300s, bKash tokens) in try/catch — must fail soft. OTP keys `register-otp|register-data|forgot-password-otp:<email>` EX 300s.
 - **Audit logs**: write `writeAuditLog` for approvals, status changes, role changes, terminations, refunds.
