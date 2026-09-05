@@ -2,12 +2,17 @@ import cron from "node-cron";
 import { addMonths, startOfDay } from "date-fns";
 import {
 	ApplicationStatus,
+	InvoiceStatus,
 	InvoiceType,
 	LeaseStatus,
 	MembershipStatus,
 	NotificationType,
+	PaymentGateway,
+	PaymentStatus,
 } from "../../generated/prisma/enums";
+import config from "../config";
 import { prisma } from "./prisma";
+import { getStripe } from "./stripe";
 import { writeAuditLog } from "../utils/audit";
 import { createNotification } from "../utils/notification";
 import { recalculateRoomStatus } from "../utils/roomStatus";
@@ -238,6 +243,170 @@ export const finalizeExpiredLeases = async () => {
 	}
 };
 
+// Runs daily: payments still PROCESSING after 24h had their final provider
+// notification lost. The cron NEVER auto-settles (I-G5): a definitive
+// failed/expired verdict downgrades the row (conditional write, I-G4) so the
+// tenant can retry; a "paid" or ambiguous verdict is flagged into the admin
+// settle queue via a PAYMENT_STALE_FLAGGED audit (the success-side mirror
+// of REFUND_PENDING reconciliation).
+export const reconcileStaleProcessingPayments = async () => {
+	const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+	const stalePayments = await prisma.payment.findMany({
+		where: {
+			status: PaymentStatus.PROCESSING,
+			updatedAt: { lt: cutoff },
+		},
+	});
+
+	if (stalePayments.length === 0) {
+		return;
+	}
+
+	for (const payment of stalePayments) {
+		try {
+			// probe the provider for the definitive state
+			let verdict: "paid" | "failed" | "expired" | "ambiguous";
+
+			if (payment.gateway === PaymentGateway.STRIPE) {
+				const session = await getStripe().checkout.sessions.retrieve(
+					payment.bKashPaymentId as string,
+				);
+
+				if (
+					session.payment_status === "paid" ||
+					session.payment_status === "no_payment_required"
+				) {
+					verdict = "paid";
+				} else if (session.status === "expired") {
+					verdict = "expired";
+				} else if (session.status === "complete") {
+					verdict = "paid";
+				} else {
+					verdict = "ambiguous";
+				}
+			} else if (payment.gateway === PaymentGateway.BKASH) {
+				// re-executing a completed session is an idempotent status
+				// probe; an ERRORED probe is ambiguous (a transient gateway
+				// fault must never wrongly downgrade a row)
+				try {
+					const { executeBkashPayment } = await import("./bKash");
+					const executed = await executeBkashPayment(
+						payment.bKashPaymentId as string,
+					);
+
+					verdict =
+						executed.transactionStatus === "Completed" ? "paid" : "failed";
+				} catch (error) {
+					console.log(
+						`Cron: bKash re-execute probe errored for ${payment.id}:`,
+						error,
+					);
+					verdict = "ambiguous";
+				}
+			} else if (payment.gateway === PaymentGateway.SSLCOMMERZ) {
+				// re-validate against the validator using the val_id stored
+				// from the original confirmation attempt (if any)
+				const raw = payment.gatwayResponse as { val_id?: string } | null;
+
+				if (raw?.val_id) {
+					const response = await fetch(
+						`${config.sslcommerz_validate_url}?val_id=${encodeURIComponent(raw.val_id)}&store_id=${config.ssl_commerz_store_id}&store_passwd=${config.ssl_commerz_store_passwd}&format=json`,
+					);
+					const data = (await response.json()) as { status?: string };
+
+					verdict =
+						data.status === "VALID" || data.status === "VALIDATED"
+							? "paid"
+							: "failed";
+				} else {
+					// no val_id ever arrived: nothing to validate against
+					verdict = "ambiguous";
+				}
+			} else {
+				verdict = "ambiguous";
+			}
+
+			if (verdict === "failed" || verdict === "expired") {
+				// conditional downgrade: the tenant can retry immediately
+				await prisma.$transaction(async (tx) => {
+					const result = await tx.payment.updateMany({
+						where: {
+							id: payment.id,
+							status: PaymentStatus.PROCESSING,
+						},
+						data: {
+							status:
+								verdict === "failed"
+									? PaymentStatus.FAILED
+									: PaymentStatus.CANCELLED,
+						},
+					});
+
+					if (result.count === 0) {
+						return;
+					}
+
+					if (payment.invoiceId) {
+						await tx.invoice.update({
+							where: { id: payment.invoiceId },
+							data: {
+								status:
+									verdict === "failed"
+										? InvoiceStatus.FAILED
+										: InvoiceStatus.UNPAID,
+							},
+						});
+					}
+
+					await writeAuditLog(
+						{
+							action: "PAYMENT_STALE_RECONCILED",
+							entity: "Payment",
+							entityId: payment.id,
+							actorRole: "SYSTEM",
+							before: { status: PaymentStatus.PROCESSING },
+							after: {
+								status:
+									verdict === "failed"
+										? PaymentStatus.FAILED
+										: PaymentStatus.CANCELLED,
+								gateway: payment.gateway,
+							},
+						},
+						tx,
+					);
+				});
+
+				console.log(
+					`Cron: stale payment ${payment.id} downgraded (${verdict}).`,
+				);
+			} else {
+				// paid / ambiguous: flag for the admin settle queue
+				await writeAuditLog({
+					action: "PAYMENT_STALE_FLAGGED",
+					entity: "Payment",
+					entityId: payment.id,
+					actorRole: "SYSTEM",
+					before: { status: PaymentStatus.PROCESSING },
+					after: {
+						providerVerdict: verdict,
+						gateway: payment.gateway,
+						resolution: "admin settle queue",
+					},
+				});
+
+				console.log(
+					`Cron: stale payment ${payment.id} flagged (${verdict}) for the admin settle queue.`,
+				);
+			}
+		} catch (error) {
+			// one bad row must never block the rest of the batch
+			console.log(`Cron: stale payment probe failed for ${payment.id}:`, error);
+		}
+	}
+};
+
 // Register every recurring background job (invoked once on server boot).
 export const scheduleBackgroundJobs = () => {
 	// generate monthly rent invoices every day at 00:10
@@ -267,7 +436,16 @@ export const scheduleBackgroundJobs = () => {
 		}
 	});
 
+	// reconcile stale payment sessions every day at 00:25
+	cron.schedule("25 0 * * *", async () => {
+		try {
+			await reconcileStaleProcessingPayments();
+		} catch (error) {
+			console.log("Cron: Failed to reconcile stale payment sessions", error);
+		}
+	});
+
 	console.log(
-		"Background jobs scheduled (rent invoices, lease finalizer, application expiry).",
+		"Background jobs scheduled (rent invoices, lease finalizer, application expiry, payment reconciliation).",
 	);
 };

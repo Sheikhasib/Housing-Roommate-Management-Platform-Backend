@@ -4,6 +4,7 @@ import {
 	expirePendingApplications,
 	finalizeExpiredLeases,
 	generateMonthlyRentInvoices,
+	reconcileStaleProcessingPayments,
 	scheduleBackgroundJobs,
 } from "./app/lib/cron";
 import { transporter } from "./app/lib/nodemailer";
@@ -73,6 +74,7 @@ const main = async () => {
 		await generateMonthlyRentInvoices();
 		await finalizeExpiredLeases();
 		await expirePendingApplications();
+		await reconcileStaleProcessingPayments();
 
 		app.listen(PORT, () => {
 			console.log(`Server is running on port ${PORT}`);
