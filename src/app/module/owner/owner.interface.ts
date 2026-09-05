@@ -1,8 +1,8 @@
-import type { OwnerVerificationStatus } from "../../../generated/prisma/enums";
+import type { VerificationStatus } from "../../../generated/prisma/enums";
 
 export interface IVerifyOwnerPayload {
 	ownerProfileId: string;
-	verificationStatus: OwnerVerificationStatus;
+	verificationStatus: VerificationStatus;
 	rejectionReason?: string;
 }
 

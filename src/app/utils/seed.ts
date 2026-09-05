@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import httpStatus from "http-status";
-import { OwnerVerificationStatus, Role } from "../../generated/prisma/enums";
+import { VerificationStatus, Role } from "../../generated/prisma/enums";
 import config from "../config";
 import { prisma } from "../lib/prisma";
 import { AppError } from "./AppError";
@@ -138,7 +138,7 @@ export const seedTesterOwner = async () => {
 			contactNumber: "+8801711111111",
 			companyName: "Green Valley Properties",
 			address: "Banani, Dhaka",
-			verificationStatus: OwnerVerificationStatus.APPROVED,
+			verificationStatus: VerificationStatus.APPROVED,
 			reviewedBy: "system-seed",
 			reviewedAt: new Date(),
 		},
@@ -315,6 +315,23 @@ export const seedTesterTenant = async () => {
 
 	if (existing) {
 		console.log("Tester Tenant Already Exists!");
+
+		// pre-P2 databases seeded the tenant before verification existed:
+		// keep the demo account APPROVED so payment flows keep working
+		if (
+			existing.tenantProfile &&
+			existing.tenantProfile.verificationStatus !== VerificationStatus.APPROVED
+		) {
+			await prisma.tenantProfile.update({
+				where: { id: existing.tenantProfile.id },
+				data: {
+					verificationStatus: VerificationStatus.APPROVED,
+					reviewedBy: "system-seed",
+					reviewedAt: new Date(),
+				},
+			});
+		}
+
 		return;
 	}
 
@@ -340,6 +357,10 @@ export const seedTesterTenant = async () => {
 			petFriendly: true,
 			gender: "MALE",
 			bio: "Looking for a calm, tidy roommate near Banani / Gulshan.",
+			// pre-verified so payment flows work out of the box (spec 03)
+			verificationStatus: VerificationStatus.APPROVED,
+			reviewedBy: "system-seed",
+			reviewedAt: new Date(),
 		},
 	});
 

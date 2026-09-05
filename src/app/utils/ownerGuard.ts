@@ -1,5 +1,5 @@
 import httpStatus from "http-status";
-import { OwnerVerificationStatus } from "../../generated/prisma/enums";
+import { VerificationStatus } from "../../generated/prisma/enums";
 import { prisma } from "../lib/prisma";
 import { AppError } from "./AppError";
 
@@ -20,7 +20,7 @@ export const getVerifiedOwnerProfile = async (userId: string) => {
 		);
 	}
 
-	if (ownerProfile.verificationStatus !== OwnerVerificationStatus.APPROVED) {
+	if (ownerProfile.verificationStatus !== VerificationStatus.APPROVED) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			`Your owner account is ${ownerProfile.verificationStatus.toLowerCase()}. You can list properties only after an admin approves your account.`,

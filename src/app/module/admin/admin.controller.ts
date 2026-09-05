@@ -115,6 +115,45 @@ const resolvePendingRefundPayment = catchAsync(
 	},
 );
 
+// Pending tenant identity verifications
+const getPendingTenantVerifications = catchAsync(
+	async (req: Request, res: Response) => {
+		const { data, meta } = await AdminServices.getPendingTenantVerifications(
+			req.query,
+		);
+
+		sendResponse(res, {
+			statusCode: httpStatus.OK,
+			success: true,
+			message: "Pending tenant verifications fetched successfully",
+			data,
+			meta,
+		});
+	},
+);
+
+// Review (approve/reject) a tenant verification
+const reviewTenantVerification = catchAsync(
+	async (req: Request, res: Response) => {
+		const tenantProfileId = req.params.tenantProfileId as string;
+		const payload = req.body;
+		const user = req.user!;
+
+		const result = await AdminServices.reviewTenantVerification(
+			tenantProfileId,
+			payload,
+			user,
+		);
+
+		sendResponse(res, {
+			statusCode: httpStatus.OK,
+			success: true,
+			message: "Tenant verification reviewed successfully",
+			data: result,
+		});
+	},
+);
+
 export const AdminController = {
 	getAdminDashboardStats,
 	getAllUsers,
@@ -123,4 +162,6 @@ export const AdminController = {
 	getAuditLogs,
 	getPendingRefundPayments,
 	resolvePendingRefundPayment,
+	getPendingTenantVerifications,
+	reviewTenantVerification,
 };

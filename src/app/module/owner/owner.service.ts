@@ -1,7 +1,7 @@
 import httpStatus from "http-status";
 import {
 	NotificationType,
-	OwnerVerificationStatus,
+	VerificationStatus,
 } from "../../../generated/prisma/enums";
 import type { IQuery } from "../../interfaces";
 import type { OwnerProfileWhereInput } from "../../../generated/prisma/models";
@@ -45,26 +45,21 @@ const verifyOwnerProfile = async (
 		);
 	}
 
-	if (
-		existingOwnerProfile.verificationStatus !== OwnerVerificationStatus.PENDING
-	) {
+	if (existingOwnerProfile.verificationStatus !== VerificationStatus.PENDING) {
 		throw new AppError(
 			httpStatus.CONFLICT,
 			`Owner verification has already been ${existingOwnerProfile.verificationStatus.toLowerCase()}`,
 		);
 	}
 
-	if (
-		verificationStatus === OwnerVerificationStatus.REJECTED &&
-		!rejectionReason
-	) {
+	if (verificationStatus === VerificationStatus.REJECTED && !rejectionReason) {
 		throw new AppError(
 			httpStatus.BAD_REQUEST,
 			"Rejection reason is required when rejecting an owner",
 		);
 	}
 
-	const isApproved = verificationStatus === OwnerVerificationStatus.APPROVED;
+	const isApproved = verificationStatus === VerificationStatus.APPROVED;
 
 	// status change + audit commit atomically so the decision is never un-logged
 	const updatedOwnerProfile = await prisma.$transaction(async (tx) => {
@@ -73,7 +68,7 @@ const verifyOwnerProfile = async (
 			data: {
 				verificationStatus,
 				rejectionReason:
-					verificationStatus === OwnerVerificationStatus.REJECTED
+					verificationStatus === VerificationStatus.REJECTED
 						? rejectionReason
 						: null,
 				reviewedBy: reviewer.userId,
@@ -189,7 +184,7 @@ const requestVerification = async (user: RequestUser) => {
 		throw new AppError(httpStatus.NOT_FOUND, "Owner profile not found");
 	}
 
-	if (ownerProfile.verificationStatus === OwnerVerificationStatus.PENDING) {
+	if (ownerProfile.verificationStatus === VerificationStatus.PENDING) {
 		throw new AppError(
 			httpStatus.CONFLICT,
 			"Owner verification is already pending",
@@ -199,7 +194,7 @@ const requestVerification = async (user: RequestUser) => {
 	const updatedOwnerProfile = await prisma.ownerProfile.update({
 		where: { id: ownerProfile.id },
 		data: {
-			verificationStatus: OwnerVerificationStatus.PENDING,
+			verificationStatus: VerificationStatus.PENDING,
 			rejectionReason: null,
 			reviewedBy: null,
 			reviewedAt: null,
@@ -273,7 +268,7 @@ const getAllOwners = async (query: IQuery) => {
 	// Filtering
 	if (query.verificationStatus) {
 		andConditions.push({
-			verificationStatus: query.verificationStatus as OwnerVerificationStatus,
+			verificationStatus: query.verificationStatus as VerificationStatus,
 		});
 	}
 

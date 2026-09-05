@@ -27,7 +27,7 @@ enum AuthProvider {
   CREDENTIAL
 }
 
-enum OwnerVerificationStatus {
+enum VerificationStatus {
   PENDING
   APPROVED
   REJECTED

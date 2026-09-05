@@ -7,6 +7,7 @@ import {
 	PaymentPurpose,
 	PaymentStatus,
 	Role,
+	VerificationStatus,
 } from "../../../generated/prisma/enums";
 import type { IQuery } from "../../interfaces";
 import type { InvoiceWhereInput } from "../../../generated/prisma/models";
@@ -291,6 +292,14 @@ const payInvoice = async (invoiceId: string, user: RequestUser) => {
 
 	if (!tenantProfile) {
 		throw new AppError(httpStatus.NOT_FOUND, "Tenant profile not found");
+	}
+
+	// only identity-verified tenants may move money (spec 03/15)
+	if (tenantProfile.verificationStatus !== VerificationStatus.APPROVED) {
+		throw new AppError(
+			httpStatus.FORBIDDEN,
+			"Your tenant account is not verified yet. Please complete identity verification before paying",
+		);
 	}
 
 	const invoice = await prisma.invoice.findUnique({

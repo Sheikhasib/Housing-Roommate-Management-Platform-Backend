@@ -21,6 +21,14 @@ model TenantProfile {
   hasPets            Boolean  @default(false)
   lookingForRoommate Boolean  @default(false)
 
+  // identity verification (mirrors the owner pattern; reviewed by admins)
+  verificationDocUrl     String?
+  verificationDocPublicId String?
+  verificationStatus     VerificationStatus @default(PENDING)
+  rejectionReason        String?
+  reviewedBy             String?   // User id of the reviewing admin
+  reviewedAt             DateTime?
+
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
@@ -43,5 +51,6 @@ model TenantProfile {
 
   @@index([preferredCity], name: "idx_tenant_city")
   @@index([lookingForRoommate], name: "idx_tenant_looking_roommate")
+  @@index([verificationStatus], name: "idx_tenant_verification_status")
   @@map("tenant_profiles")
 }

@@ -5,6 +5,7 @@ import {
 	PaymentPurpose,
 	PaymentStatus,
 	Role,
+	VerificationStatus,
 } from "../../../generated/prisma/enums";
 import { isBefore } from "date-fns";
 import type { IQuery } from "../../interfaces";
@@ -529,6 +530,14 @@ const payDeposit = async (applicationId: string, user: RequestUser) => {
 
 	if (!tenantProfile) {
 		throw new AppError(httpStatus.NOT_FOUND, "Tenant profile not found");
+	}
+
+	// only identity-verified tenants may move money (spec 03/15)
+	if (tenantProfile.verificationStatus !== VerificationStatus.APPROVED) {
+		throw new AppError(
+			httpStatus.FORBIDDEN,
+			"Your tenant account is not verified yet. Please complete identity verification before paying",
+		);
 	}
 
 	const application = await prisma.application.findUnique({

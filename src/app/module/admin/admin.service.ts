@@ -4,7 +4,7 @@ import {
 	LeaseStatus,
 	MaintenanceStatus,
 	NotificationType,
-	OwnerVerificationStatus,
+	VerificationStatus,
 	PaymentStatus,
 	Role,
 	UserStatus,
@@ -12,15 +12,18 @@ import {
 import type { IQuery } from "../../interfaces";
 import type {
 	AuditLogWhereInput,
+	TenantProfileWhereInput,
 	UserWhereInput,
 } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { writeAuditLog } from "../../utils/audit";
+import { sendTemplateEmail } from "../../utils/email";
 import { createNotification } from "../../utils/notification";
 import type {
 	IResolvePendingRefundPayload,
+	IReviewTenantVerificationPayload,
 	IUpdateUserRolePayload,
 	IUpdateUserStatusPayload,
 } from "./admin.interface";
@@ -48,7 +51,16 @@ const getAdminDashboardStats = async () => {
 	// owner verification queue
 	const pendingOwnerVerifications = await prisma.ownerProfile.count({
 		where: {
-			verificationStatus: OwnerVerificationStatus.PENDING,
+			verificationStatus: VerificationStatus.PENDING,
+			isDeleted: false,
+		},
+	});
+
+	// tenant verification queue
+	const pendingTenantVerifications = await prisma.tenantProfile.count({
+		where: {
+			verificationStatus: VerificationStatus.PENDING,
+			verificationDocUrl: { not: null },
 			isDeleted: false,
 		},
 	});
@@ -111,6 +123,7 @@ const getAdminDashboardStats = async () => {
 		totalAdmins,
 		blockedUsers,
 		pendingOwnerVerifications,
+		pendingTenantVerifications,
 		totalProperties,
 		totalRooms,
 		totalBeds,
@@ -164,6 +177,7 @@ const getAllUsers = async (query: IQuery) => {
 					preferredCity: true,
 					lookingForRoommate: true,
 					occupation: true,
+					verificationStatus: true,
 					isDeleted: true,
 				},
 			},
@@ -203,6 +217,7 @@ const getAllUsers = async (query: IQuery) => {
 							preferredCity: tenantProfile.preferredCity,
 							lookingForRoommate: tenantProfile.lookingForRoommate,
 							occupation: tenantProfile.occupation,
+							verificationStatus: tenantProfile.verificationStatus,
 						}
 					: null,
 			ownerProfile: ownerProfile?.isDeleted
@@ -357,7 +372,7 @@ const updateUserRole = async (
 						userId,
 						name: targetUser.name,
 						email: targetUser.email,
-						verificationStatus: OwnerVerificationStatus.PENDING,
+						verificationStatus: VerificationStatus.PENDING,
 					},
 				});
 			}
@@ -573,6 +588,181 @@ const getAuditLogs = async (query: IQuery) => {
 	};
 };
 
+// TENANT identity verification queue: PENDING tenants who actually uploaded a
+// document, oldest first (they have been waiting the longest).
+const getPendingTenantVerifications = async (query: IQuery) => {
+	const limit = query.limit ? Number(query.limit) : 10;
+	const page = query.page ? Number(query.page) : 1;
+	const skip = (page - 1) * limit;
+
+	const andConditions: TenantProfileWhereInput[] = [
+		{ verificationStatus: VerificationStatus.PENDING },
+		{ verificationDocUrl: { not: null } },
+		{ isDeleted: false },
+	];
+
+	if (query.searchTerm) {
+		andConditions.push({
+			OR: [
+				{ name: { contains: query.searchTerm, mode: "insensitive" } },
+				{ email: { contains: query.searchTerm, mode: "insensitive" } },
+			],
+		});
+	}
+
+	const where = { AND: andConditions };
+
+	const tenants = await prisma.tenantProfile.findMany({
+		where,
+		take: limit,
+		skip,
+		orderBy: { createdAt: "asc" },
+		select: {
+			id: true,
+			name: true,
+			email: true,
+			contactNumber: true,
+			occupation: true,
+			verificationDocUrl: true,
+			verificationStatus: true,
+			createdAt: true,
+			user: {
+				select: {
+					id: true,
+					name: true,
+					email: true,
+					role: true,
+					status: true,
+					imageUrl: true,
+					createdAt: true,
+				},
+			},
+		},
+	});
+
+	const total = await prisma.tenantProfile.count({ where });
+
+	return {
+		data: tenants,
+		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+	};
+};
+
+// Approve or reject a tenant's identity verification (mirrors the owner flow:
+// audit + email + notification, and rejection requires a reason).
+const reviewTenantVerification = async (
+	tenantProfileId: string,
+	payload: IReviewTenantVerificationPayload,
+	admin: RequestUser,
+) => {
+	const tenantProfile = await prisma.tenantProfile.findUnique({
+		where: { id: tenantProfileId },
+	});
+
+	if (!tenantProfile || tenantProfile.isDeleted) {
+		throw new AppError(httpStatus.NOT_FOUND, "Tenant profile not found");
+	}
+
+	if (tenantProfile.verificationStatus !== VerificationStatus.PENDING) {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			`Tenant verification has already been ${tenantProfile.verificationStatus.toLowerCase()}`,
+		);
+	}
+
+	if (payload.verificationStatus === "REJECTED" && !payload.rejectionReason) {
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			"Rejection reason is required when rejecting a tenant",
+		);
+	}
+
+	const isApproved = payload.verificationStatus === "APPROVED";
+
+	const updatedTenantProfile = await prisma.$transaction(async (tx) => {
+		// conditional write: only a still-PENDING verification can be reviewed
+		const reviewed = await tx.tenantProfile.updateMany({
+			where: {
+				id: tenantProfileId,
+				verificationStatus: VerificationStatus.PENDING,
+			},
+			data: {
+				verificationStatus: payload.verificationStatus,
+				rejectionReason: isApproved ? null : payload.rejectionReason,
+				reviewedBy: admin.userId,
+				reviewedAt: new Date(),
+			},
+		});
+
+		if (reviewed.count === 0) {
+			throw new AppError(
+				httpStatus.CONFLICT,
+				"Tenant verification was already reviewed by another request",
+			);
+		}
+
+		const updated = await tx.tenantProfile.findUniqueOrThrow({
+			where: { id: tenantProfileId },
+		});
+
+		await writeAuditLog(
+			{
+				action: isApproved ? "TENANT_APPROVED" : "TENANT_REJECTED",
+				entity: "TenantProfile",
+				entityId: tenantProfileId,
+				actorId: admin.userId,
+				actorEmail: admin.email,
+				actorRole: admin.role,
+				before: { verificationStatus: VerificationStatus.PENDING },
+				after: {
+					verificationStatus: payload.verificationStatus,
+					rejectionReason: payload.rejectionReason,
+				},
+			},
+			tx,
+		);
+
+		return updated;
+	});
+
+	// side effects must never fail the committed review
+	try {
+		await sendTemplateEmail({
+			to: tenantProfile.email,
+			subject: isApproved
+				? "Your Tenant Account Has Been Approved"
+				: "Your Tenant Account Verification Was Rejected",
+			template: isApproved
+				? "tenant-account-approved"
+				: "tenant-account-rejected",
+			data: {
+				name: tenantProfile.name,
+				reason: payload.rejectionReason,
+			},
+		});
+	} catch (error) {
+		console.log("Tenant verification email failed:", error);
+	}
+
+	try {
+		await createNotification({
+			userId: tenantProfile.userId,
+			type: NotificationType.SYSTEM,
+			title: isApproved
+				? "Tenant account approved ✅"
+				: "Tenant account rejected ❌",
+			message: isApproved
+				? "Your identity has been verified. You can now pay booking deposits and invoices."
+				: `Your verification was rejected. Reason: ${payload.rejectionReason || "not provided"}. Please upload a new document.`,
+			data: { tenantProfileId },
+		});
+	} catch (error) {
+		console.log("Tenant verification notification failed:", error);
+	}
+
+	return updatedTenantProfile;
+};
+
 export const AdminServices = {
 	getAdminDashboardStats,
 	getAllUsers,
@@ -581,4 +771,6 @@ export const AdminServices = {
 	getAuditLogs,
 	getPendingRefundPayments,
 	resolvePendingRefundPayment,
+	getPendingTenantVerifications,
+	reviewTenantVerification,
 };

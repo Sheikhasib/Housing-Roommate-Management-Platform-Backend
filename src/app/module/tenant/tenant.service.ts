@@ -1,6 +1,11 @@
 import httpStatus from "http-status";
+import { VerificationStatus } from "../../../generated/prisma/enums";
 import { prisma } from "../../lib/prisma";
 import { AppError } from "../../utils/AppError";
+import {
+	deleteFromCloudinary,
+	uploadFileToCloudinary,
+} from "../../utils/cloudinaryUpload";
 import type { RequestUser } from "../../middleware/checkAuth";
 import type { IUpdateTenantProfilePayload } from "./tenant.interface";
 
@@ -65,7 +70,51 @@ const getMyTenantProfile = async (user: RequestUser) => {
 	return tenantProfile;
 };
 
+// TENANT: upload/replace the identity verification document (NID etc).
+// A new document always re-enters the PENDING queue for admin review.
+const uploadVerificationDocument = async (
+	buffer: Buffer,
+	user: RequestUser,
+) => {
+	const existingTenantProfile = await prisma.tenantProfile.findFirst({
+		where: { userId: user.userId, isDeleted: false },
+	});
+
+	if (!existingTenantProfile) {
+		throw new AppError(httpStatus.NOT_FOUND, "Tenant Profile Not Found");
+	}
+
+	const uploadResult = await uploadFileToCloudinary(
+		buffer,
+		"verification-docs",
+	);
+
+	const updatedTenantProfile = await prisma.tenantProfile.update({
+		where: { id: existingTenantProfile.id },
+		data: {
+			verificationDocUrl: uploadResult.secure_url,
+			verificationDocPublicId: uploadResult.public_id,
+			// a re-upload (e.g. after a rejection) restarts the review cycle
+			verificationStatus: VerificationStatus.PENDING,
+			rejectionReason: null,
+			reviewedBy: null,
+			reviewedAt: null,
+		},
+	});
+
+	// best-effort cleanup of the replaced document
+	if (
+		existingTenantProfile.verificationDocPublicId &&
+		existingTenantProfile.verificationDocPublicId !== uploadResult.public_id
+	) {
+		await deleteFromCloudinary(existingTenantProfile.verificationDocPublicId);
+	}
+
+	return updatedTenantProfile;
+};
+
 export const TenantServices = {
 	updateMyTenantProfile,
 	getMyTenantProfile,
+	uploadVerificationDocument,
 };

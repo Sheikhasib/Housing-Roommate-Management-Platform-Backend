@@ -15,3 +15,8 @@ export interface IResolvePendingRefundPayload {
 	refundTrxId?: string;
 	note?: string;
 }
+
+export interface IReviewTenantVerificationPayload {
+	verificationStatus: "APPROVED" | "REJECTED";
+	rejectionReason?: string;
+}

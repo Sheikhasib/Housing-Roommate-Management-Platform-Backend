@@ -59,4 +59,19 @@ router.post(
 	AdminController.resolvePendingRefundPayment,
 );
 
+// Pending tenant identity verifications - ADMIN
+router.get(
+	"/tenant-verifications",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	AdminController.getPendingTenantVerifications,
+);
+
+// Review (approve/reject) a tenant verification - ADMIN
+router.patch(
+	"/tenant-verifications/:tenantProfileId",
+	auth(Role.ADMIN, Role.SUPER_ADMIN),
+	validateRequest(AdminValidation.ReviewTenantVerificationZodSchema),
+	AdminController.reviewTenantVerification,
+);
+
 export const AdminRoutes = router;

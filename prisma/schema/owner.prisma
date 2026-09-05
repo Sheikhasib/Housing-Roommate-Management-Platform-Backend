@@ -11,7 +11,7 @@ model OwnerProfile {
   companyName   String?
   address       String?
 
-  verificationStatus OwnerVerificationStatus @default(PENDING)
+  verificationStatus VerificationStatus @default(PENDING)
   rejectionReason    String?
   reviewedBy         String?
   reviewedAt         DateTime?

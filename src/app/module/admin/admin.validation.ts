@@ -22,8 +22,27 @@ const ResolvePendingRefundZodSchema = z.object({
 	note: z.string("Not a string.").optional(),
 });
 
+const ReviewTenantVerificationZodSchema = z
+	.object({
+		verificationStatus: z.enum(
+			["APPROVED", "REJECTED"],
+			"verificationStatus must be APPROVED or REJECTED",
+		),
+		rejectionReason: z.string("Not a string.").optional(),
+	})
+	.superRefine((data, ctx) => {
+		if (data.verificationStatus === "REJECTED" && !data.rejectionReason) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["rejectionReason"],
+				message: "Rejection reason is required when rejecting a tenant",
+			});
+		}
+	});
+
 export const AdminValidation = {
 	UpdateUserStatusZodSchema,
 	UpdateUserRoleZodSchema,
 	ResolvePendingRefundZodSchema,
+	ReviewTenantVerificationZodSchema,
 };
