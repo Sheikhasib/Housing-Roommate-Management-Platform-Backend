@@ -548,6 +548,21 @@ const terminateLease = async (
 		}
 	}
 
+	// the property owner loses a tenant — notify unless they are the actor
+	if (ownerProfile && ownerProfile.userId !== user.userId) {
+		try {
+			await createNotification({
+				userId: ownerProfile.userId,
+				type: NotificationType.LEASE,
+				title: "Lease terminated 📄",
+				message: `The lease for "${existingLease.room.name}" held by ${tenantProfile.name} was terminated. Reason: ${reason}`,
+				data: { leaseId },
+			});
+		} catch (error) {
+			console.log("Lease termination owner notification failed:", error);
+		}
+	}
+
 	return {
 		lease: finalLease,
 		refund: refundResult

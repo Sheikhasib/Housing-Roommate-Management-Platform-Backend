@@ -6,6 +6,7 @@ import {
 	NotificationType,
 	RoommateRequestStatus,
 	Role,
+	UserStatus,
 	VerificationStatus,
 } from "../../../generated/prisma/enums";
 import type { IQuery } from "../../interfaces";
@@ -595,13 +596,25 @@ const inviteMember = async (
 		throw new AppError(httpStatus.BAD_REQUEST, "You cannot invite yourself");
 	}
 
-	const inviteeProfile = await prisma.tenantProfile.findFirst({
-		where: { email: inviteeEmail, isDeleted: false },
+	// the invitee must be a live TENANT account: role changes never delete
+	// profiles, so an ex-tenant OWNER (or a BLOCKED user) could otherwise be
+	// invited and the invitation would dangle PENDING forever (respond is
+	// auth(TENANT) and blocked users cannot log in)
+	const inviteeUser = await prisma.user.findFirst({
+		where: {
+			email: inviteeEmail,
+			role: Role.TENANT,
+			status: UserStatus.ACTIVE,
+			isDeleted: false,
+		},
+		include: { tenantProfile: true },
 	});
 
-	if (!inviteeProfile) {
+	if (!inviteeUser?.tenantProfile) {
 		throw new AppError(httpStatus.NOT_FOUND, "Tenant not found");
 	}
+
+	const inviteeProfile = inviteeUser.tenantProfile;
 
 	if (inviteeProfile.verificationStatus !== VerificationStatus.APPROVED) {
 		throw new AppError(
@@ -1135,7 +1148,7 @@ const removeMembership = async (
 		return updated;
 	});
 
-	// notify the invitee + owner (fail-soft, never the actor themself)
+	// notify the invitee, the holder and the owner (fail-soft, never the actor)
 	try {
 		if (membership.tenantProfile.userId !== user.userId) {
 			await createNotification({
@@ -1143,6 +1156,17 @@ const removeMembership = async (
 				type: NotificationType.ROOMMATE,
 				title: "Roommate membership removed 🚪",
 				message: `Your roommate membership on "${membership.lease.room.name}" was removed. Reason: ${reason}`,
+				data: { membershipId, leaseId: membership.leaseId },
+			});
+		}
+
+		const holderUserId = membership.lease.tenantProfile.userId;
+		if (holderUserId !== user.userId) {
+			await createNotification({
+				userId: holderUserId,
+				type: NotificationType.ROOMMATE,
+				title: "Roommate membership removed 🚪",
+				message: `The roommate arrangement on "${membership.lease.room.name}" was removed by ${user.name}. Reason: ${reason}`,
 				data: { membershipId, leaseId: membership.leaseId },
 			});
 		}
@@ -1164,9 +1188,11 @@ const removeMembership = async (
 	return updatedMembership;
 };
 
-// MEMBER (ACTIVE) or HOLDER: the room's utility bills — a deliberately
-// trimmed projection: no payment data, no lease economics, no tenant PII
-// beyond what the caller already owns (master plan I1, read side).
+// MEMBER (ACTIVE) or HOLDER: the membership lease's utility bills — a
+// deliberately trimmed projection scoped to THE LEASE (utility invoices are
+// per-lease shares; another lease's share is another tenant's financial
+// data): no payment data, no lease economics, no PII beyond what the caller
+// already owns (master plan I1, read side).
 const getMembershipUtilityBills = async (
 	membershipId: string,
 	user: RequestUser,
@@ -1175,7 +1201,7 @@ const getMembershipUtilityBills = async (
 
 	const membership = await prisma.roommateMembership.findUnique({
 		where: { id: membershipId },
-		include: { lease: { select: { roomId: true, tenantProfileId: true } } },
+		include: { lease: { select: { tenantProfileId: true } } },
 	});
 
 	if (!membership) {
@@ -1196,7 +1222,7 @@ const getMembershipUtilityBills = async (
 
 	return prisma.invoice.findMany({
 		where: {
-			roomId: membership.lease.roomId,
+			leaseId: membership.leaseId,
 			type: InvoiceType.UTILITY,
 			isDeleted: false,
 		},
