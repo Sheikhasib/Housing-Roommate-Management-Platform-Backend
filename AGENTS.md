@@ -52,7 +52,7 @@ npm run format:check   # Biome format ./src      (fix: npm run format:fix)
 - **Redis**: cache hot reads (public room search `room-public:...` and property search `property-public:...` EX 60s, roommate matches `roommate-match:<id>` EX 300s, bKash tokens) in try/catch — must fail soft. OTP keys `register-otp|register-data|forgot-password-otp:<email>` EX 300s.
 - **Audit logs**: write `writeAuditLog` for approvals, status changes, role changes, terminations, refunds.
 - **Notifications**: `createNotification({ userId, type, title, message, data? })`; `NotificationType` is required.
-- **Owners**: before any property/room/lease write call `getVerifiedOwnerProfile(user.userId)` (requires APPROVED). Scope all queries by `req.user.userId`. Managers scope via `propertyScopeFilter`; tenants must be VERIFIED before any payment session (deposit `pay-deposit`, invoice `pay`).
+- **Owners**: before any property/room/lease write call `getVerifiedOwnerProfile(user.userId)` (requires APPROVED). Scope all queries by `req.user.userId`. Managers scope via `propertyManagerScope`; tenants must be VERIFIED before any payment session (deposit `pay-deposit`, invoice `pay`).
 - Use `select`/`include` (never wide `*`). List endpoints paginate/filter/sort via `IQuery` (`searchTerm`, `page`, `limit`, `sortBy`, `sortOrder`).
 - Cron (daily 00:10 rent invoices, 00:15 lease finalization, 00:20 application expiry) lives in `src/app/lib/cron.ts`; keep them idempotent.
 
