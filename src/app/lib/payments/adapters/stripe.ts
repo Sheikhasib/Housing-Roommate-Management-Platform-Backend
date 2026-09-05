@@ -30,18 +30,24 @@ import type {
 // ProviderAmbiguousError (kept REFUND_PENDING for admin reconciliation).
 export const refundStripePayment = async ({
 	sessionId,
+	paymentIntent,
 	amount,
 	reason,
 }: {
 	sessionId: string;
+	paymentIntent?: string;
 	amount: string;
 	reason: string;
 }) => {
 	try {
-		// the charge lives on the session's payment intent
+		// the charge reference: the session's payment intent, falling back to
+		// the one the settle path recorded from the verified webhook event
 		const session = await getStripe().checkout.sessions.retrieve(sessionId);
+		const paymentIntentId =
+			(typeof session.payment_intent === "string" && session.payment_intent) ||
+			paymentIntent;
 
-		if (!session.payment_intent) {
+		if (!paymentIntentId) {
 			throw new AppError(
 				httpStatus.BAD_GATEWAY,
 				"Stripe session has no payment intent to refund",
@@ -49,9 +55,7 @@ export const refundStripePayment = async ({
 		}
 
 		const refund = await getStripe().refunds.create({
-			// the session was retrieved without expansion, so this is the
-			// payment intent id string
-			payment_intent: session.payment_intent as string,
+			payment_intent: paymentIntentId,
 			metadata: { reason, ledgerAmountBdt: amount },
 		});
 
@@ -195,6 +199,7 @@ export const stripeAdapter: PaymentGatewayAdapter = {
 
 		const refund = await refundStripePayment({
 			sessionId: payment.bKashPaymentId,
+			paymentIntent: payment.bKashTrxId ?? undefined,
 			amount: amount.toString(),
 			reason,
 		});

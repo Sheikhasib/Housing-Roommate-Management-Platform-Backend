@@ -353,6 +353,7 @@ const terminateLease = async (
 				// ledger amount recorded, provider payload kept raw
 				const refund = await refundStripePayment({
 					sessionId: payment.bKashPaymentId as string,
+					paymentIntent: payment.bKashTrxId || undefined,
 					amount: payment.amount.toString(),
 					reason,
 				});
