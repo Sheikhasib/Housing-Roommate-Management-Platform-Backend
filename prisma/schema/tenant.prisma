@@ -49,6 +49,9 @@ model TenantProfile {
   roommatePairsAsA         RoommatePair[]    @relation("RoommatePairTenantA")
   roommatePairsAsB         RoommatePair[]    @relation("RoommatePairTenantB")
 
+  // post-lease roommate memberships (spec 08)
+  memberships RoommateMembership[]
+
   @@index([preferredCity], name: "idx_tenant_city")
   @@index([lookingForRoommate], name: "idx_tenant_looking_roommate")
   @@index([verificationStatus], name: "idx_tenant_verification_status")

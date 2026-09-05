@@ -36,6 +36,7 @@ model Lease {
   invoices            Invoice[]
   documents           LeaseDocument[]
   maintenanceRequests MaintenanceRequest[]
+  memberships         RoommateMembership[]
 
   @@index([tenantProfileId], name: "idx_lease_tenant")
   @@index([roomId], name: "idx_lease_room")

@@ -1,0 +1,33 @@
+// Post-lease roommate membership (P3-Lite, spec 08 / master plan 2026-09-05).
+// A RoommateMembership is an *operational presence*: an invited, verified
+// tenant sharing a room under the lease-holding tenant's bed. It never enters
+// any money flow (no Payment/Invoice writes) and never changes occupancy
+// counters — beds stay lease-authoritative. Lifecycle is status-driven with
+// every transition audited, so no soft delete is needed (PropertyManager
+// join precedent).
+
+model RoommateMembership {
+  id             String           @id @default(uuid())
+  status         MembershipStatus @default(PENDING)
+  message        String? // invitation note from the lease holder
+  respondedAt    DateTime?
+  joinedAt       DateTime?
+  removedAt      DateTime?
+  removedBy      String? // User id (or "system-cron") of whoever ended it
+  removalReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  //relations
+  leaseId String
+  lease   Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  tenantProfileId String
+  tenantProfile   TenantProfile @relation(fields: [tenantProfileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([leaseId, tenantProfileId], name: "unique_membership_per_lease")
+  @@index([tenantProfileId], name: "idx_membership_tenant")
+  @@index([status], name: "idx_membership_status")
+  @@map("roommate_memberships")
+}
