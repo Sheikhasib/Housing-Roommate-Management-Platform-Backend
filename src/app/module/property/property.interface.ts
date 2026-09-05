@@ -22,8 +22,8 @@ export interface IUpdatePropertyPayload {
 	area?: string;
 	address?: string;
 	googleMapUrl?: string;
-	latitude?: number;
-	longitude?: number;
+	latitude?: number | null;
+	longitude?: number | null;
 	amenities?: string[];
 	houseRules?: string;
 }
