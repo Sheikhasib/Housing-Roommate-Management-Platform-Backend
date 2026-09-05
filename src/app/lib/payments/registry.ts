@@ -4,12 +4,13 @@ import config from "../../config";
 import { AppError } from "../../utils/AppError";
 import type { PaymentGatewayAdapter } from "./types";
 import { bkashAdapter } from "./adapters/bkash";
+import { sslcommerzAdapter } from "./adapters/sslcommerz";
 
 // Gateway registry (master plan §2.1): adapters register themselves; the
 // registry resolves by gateway value and reports which gateways have their
 // credentials configured (env-driven, powers GET /payment/gateways).
 
-const adapters: PaymentGatewayAdapter[] = [bkashAdapter];
+const adapters: PaymentGatewayAdapter[] = [bkashAdapter, sslcommerzAdapter];
 
 const byGateway = new Map<PaymentGateway, PaymentGatewayAdapter>(
 	adapters.map((adapter) => [adapter.gateway, adapter]),
@@ -24,7 +25,7 @@ export const listEnabledGateways = (): string[] => {
 export const getAdapter = (gateway: PaymentGateway): PaymentGatewayAdapter => {
 	const adapter = byGateway.get(gateway);
 
-	if (!adapter) {
+	if (!adapter?.isEnabled()) {
 		throw new AppError(
 			httpStatus.BAD_REQUEST,
 			"Unsupported or disabled payment gateway",
@@ -45,7 +46,9 @@ export const parseGateway = (value: string): PaymentGateway => {
 		);
 	}
 
-	return upper;
+	// resolves through getAdapter so a registered-but-unconfigured gateway
+	// is rejected the same way as an unknown one
+	return getAdapter(upper).gateway;
 };
 
 // env read at call time so tests / boot order never cache a stale answer

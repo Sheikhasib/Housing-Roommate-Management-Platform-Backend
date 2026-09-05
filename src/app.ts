@@ -23,6 +23,7 @@ import { ApplicationRoutes } from "./app/module/application/application.route";
 import { LeaseRoutes } from "./app/module/lease/lease.route";
 import { InvoiceRoutes } from "./app/module/invoice/invoice.route";
 import { PaymentRoutes } from "./app/module/payment/payment.route";
+import { PaymentController } from "./app/module/payment/payment.controller";
 import { MaintenanceRoutes } from "./app/module/maintenance/maintenance.route";
 import { NotificationRoutes } from "./app/module/notification/notification.route";
 import { ManagerRoutes } from "./app/module/manager/manager.route";
@@ -72,6 +73,12 @@ app.get("/api/v1/health", (_req: Request, res: Response) => {
 		data: null,
 	});
 });
+
+// SSLCommerz notify routes - public (hit by the gateway, no auth) and
+// mounted BEFORE the general rate limiter so provider retry storms never eat
+// the user-facing request budget
+app.post("/api/v1/payment/confirm", PaymentController.confirmPayment);
+app.post("/api/v1/payment/ipn", PaymentController.handleIpn);
 
 // General API rate limiter
 app.use("/api/v1", generalRateLimiter);

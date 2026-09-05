@@ -27,6 +27,39 @@ const paymentCallback = catchAsync(
 	},
 );
 
+// SSLCommerz confirm - browser POST after the hosted page; validates against
+// the SSLCommerz validator and redirects the payer to the frontend
+const confirmPayment = catchAsync(
+	async (req: Request, res: Response, next: NextFunction) => {
+		const result = await PaymentServices.confirmSslcommerzPayment(
+			req.query as Record<string, any>,
+			req.body ?? {},
+		);
+
+		res.redirect(result.redirectUrl);
+	},
+);
+
+// SSLCommerz IPN - server-to-server notification; same confirmation flow but
+// answered with a JSON 200 ack (an error envelope would trigger endless
+// provider retries)
+const handleIpn = catchAsync(async (req: Request, res: Response) => {
+	const result = await PaymentServices.confirmSslcommerzPayment(
+		req.query as Record<string, any>,
+		req.body ?? {},
+	);
+
+	sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "Payment IPN processed successfully",
+		data: {
+			status: result.paymentStatus,
+			alreadyProcessed: result.alreadyProcessed,
+		},
+	});
+});
+
 // My payments (TENANT)
 const getMyPayments = catchAsync(async (req: Request, res: Response) => {
 	const user = req.user!;
@@ -73,6 +106,8 @@ const getSinglePayment = catchAsync(async (req: Request, res: Response) => {
 export const PaymentController = {
 	getGateways,
 	paymentCallback,
+	confirmPayment,
+	handleIpn,
 	getMyPayments,
 	getAllPayments,
 	getSinglePayment,

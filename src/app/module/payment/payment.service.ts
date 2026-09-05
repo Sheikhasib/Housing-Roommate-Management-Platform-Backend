@@ -46,6 +46,78 @@ const buildReceiptPdf = async (
 	return pdfReadyPromise;
 };
 
+// Post-settle side effects shared by every gateway's confirm path. Everything
+// is already committed at this point: failures must not 500 the caller's
+// response (and skip one another).
+const runDepositSettleSideEffects = async (
+	result: any,
+	executedResult: Record<string, unknown>,
+) => {
+	if (!result || result.alreadyPaid) {
+		return;
+	}
+
+	const { application, lease, payment: paymentRow } = result;
+	const { trxID, paymentExecuteTime } = executedResult as {
+		trxID?: string;
+		paymentExecuteTime?: string;
+	};
+
+	try {
+		const receiptPdf = await buildReceiptPdf([
+			{ label: "Receipt Type", value: "Booking Deposit" },
+			{ label: "Tenant Name", value: application.tenantProfile.name },
+			{ label: "Tenant Email", value: application.tenantProfile.email },
+			{ label: "Room", value: application.room.name },
+			{ label: "Lease Start", value: lease.startDate.toDateString() },
+			{ label: "Lease End", value: lease.endDate.toDateString() },
+			{ label: "Amount Paid", value: `${paymentRow.amount} BDT` },
+			{ label: "Transaction Id", value: trxID },
+			{ label: "Paid At", value: paymentExecuteTime },
+		]);
+
+		await sendTemplateEmail({
+			to: application.tenantProfile.email,
+			subject: "Your Booking Deposit Receipt - Housing & Roommate",
+			template: "payment-receipt",
+			data: { name: application.tenantProfile.name },
+			attachments: [{ filename: "deposit-receipt.pdf", content: receiptPdf }],
+		});
+	} catch (error) {
+		console.log("Deposit receipt email failed:", error);
+	}
+
+	try {
+		await createNotification({
+			userId: application.tenantProfile.userId,
+			type: NotificationType.PAYMENT,
+			title: "Deposit paid ✅",
+			message: `Your booking deposit for "${application.room.name}" was received. Your lease is now active.`,
+			data: { leaseId: lease.id },
+		});
+	} catch (error) {
+		console.log("Deposit notification failed:", error);
+	}
+};
+
+const runInvoiceSettleSideEffects = async (result: any) => {
+	if (!result) {
+		return;
+	}
+
+	try {
+		await createNotification({
+			userId: result.invoice.lease.tenantProfile.userId,
+			type: NotificationType.PAYMENT,
+			title: "Invoice paid 💰",
+			message: `Your ${result.invoice.type.toLowerCase()} invoice of ৳${result.invoice.amount} was paid successfully.`,
+			data: { invoiceId: result.invoice.id },
+		});
+	} catch (error) {
+		console.log("Invoice-paid notification failed:", error);
+	}
+};
+
 // The bKash callback URL. bKash redirects the user here after they finish
 // (success / failure / cancel) on the payment page. The flow resolves through
 // the gateway adapter + shared settle helpers with identical outcomes:
@@ -122,78 +194,16 @@ const paymentCallback = async (query: Record<string, any>) => {
 		}
 
 		if (isDeposit) {
-			const result: any = settleResult.result;
-
-			// when a lease is freshly created, email the tenant the receipt.
-			// Everything is already committed: side-effect failures must not
-			// 500 the redirect (and skip one another).
-			if (result && !result.alreadyPaid) {
-				const { application, lease, payment: paymentRow } = result;
-				const executedResult = verification.executedResult as {
-					trxID?: string;
-					paymentExecuteTime?: string;
-				};
-
-				try {
-					const receiptPdf = await buildReceiptPdf([
-						{ label: "Receipt Type", value: "Booking Deposit" },
-						{ label: "Tenant Name", value: application.tenantProfile.name },
-						{ label: "Tenant Email", value: application.tenantProfile.email },
-						{ label: "Room", value: application.room.name },
-						{ label: "Lease Start", value: lease.startDate.toDateString() },
-						{ label: "Lease End", value: lease.endDate.toDateString() },
-						{ label: "Amount Paid", value: `${paymentRow.amount} BDT` },
-						{ label: "Transaction Id", value: executedResult.trxID },
-						{ label: "Paid At", value: executedResult.paymentExecuteTime },
-					]);
-
-					await sendTemplateEmail({
-						to: application.tenantProfile.email,
-						subject: "Your Booking Deposit Receipt - Housing & Roommate",
-						template: "payment-receipt",
-						data: { name: application.tenantProfile.name },
-						attachments: [
-							{ filename: "deposit-receipt.pdf", content: receiptPdf },
-						],
-					});
-				} catch (error) {
-					console.log("Deposit receipt email failed:", error);
-				}
-
-				try {
-					await createNotification({
-						userId: application.tenantProfile.userId,
-						type: NotificationType.PAYMENT,
-						title: "Deposit paid ✅",
-						message: `Your booking deposit for "${application.room.name}" was received. Your lease is now active.`,
-						data: { leaseId: lease.id },
-					});
-				} catch (error) {
-					console.log("Deposit notification failed:", error);
-				}
-			}
+			await runDepositSettleSideEffects(
+				settleResult.result,
+				verification.executedResult,
+			);
 
 			return { redirectUrl: successRedirect };
 		}
 
 		// RENT / UTILITY invoice payment
-		const result: any = settleResult.result;
-
-		// the invoice + payment are already committed PAID: a notification
-		// failure must not 500 the redirect
-		if (result) {
-			try {
-				await createNotification({
-					userId: result.invoice.lease.tenantProfile.userId,
-					type: NotificationType.PAYMENT,
-					title: "Invoice paid 💰",
-					message: `Your ${result.invoice.type.toLowerCase()} invoice of ৳${result.invoice.amount} was paid successfully.`,
-					data: { invoiceId: result.invoice.id },
-				});
-			} catch (error) {
-				console.log("Invoice-paid notification failed:", error);
-			}
-		}
+		await runInvoiceSettleSideEffects(settleResult.result);
 
 		return { redirectUrl: successRedirect };
 	}
@@ -216,6 +226,124 @@ const paymentCallback = async (query: Record<string, any>) => {
 	// unknown bKash status
 	return {
 		redirectUrl: `${config.frontend_url}?payment=error`,
+	};
+};
+
+// SSLCommerz notification handler: /confirm receives the browser POST after
+// the hosted page (success / fail / cancel), /ipn receives the server-to-
+// server notification - both resolve through here. Success runs the
+// server-side validator (the trust anchor) and settles through the shared
+// path; fail/cancel only ever conditionally downgrade a still-PROCESSING
+// row (I-G4). Returns a structured outcome so the callers can redirect
+// (/confirm) or ack with JSON (/ipn).
+const confirmSslcommerzPayment = async (
+	query: Record<string, any>,
+	payload: Record<string, any>,
+) => {
+	const paymentId = query.paymentId; // subject key (applicationId/invoiceId)
+	const tranId = query.tranId;
+
+	if (!paymentId || !tranId) {
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			"Invalid SSLCommerz callback query",
+		);
+	}
+
+	const status = query.status as string | undefined;
+
+	// find the local payment row by the gateway transaction id (or the
+	// subject key), scoped to SSLCommerz rows so an SSLCommerz notification
+	// can never resolve another gateway's session
+	const payment = await prisma.payment.findFirst({
+		where: {
+			gateway: PaymentGateway.SSLCOMMERZ,
+			OR: [{ bKashPaymentId: tranId }, { merchantInvoiceNumber: paymentId }],
+		},
+	});
+
+	if (!payment) {
+		throw new AppError(httpStatus.NOT_FOUND, "Payment not found");
+	}
+
+	const isDeposit = payment.purpose === PaymentPurpose.DEPOSIT;
+	const successRedirect = isDeposit
+		? `${config.frontend_url}/dashboard/my-applications?status=success`
+		: `${config.frontend_url}/dashboard/my-invoices?status=success`;
+
+	// idempotent: an already-settled payment is a no-op (SSLCommerz can call
+	// more than once)
+	if (payment.status === PaymentStatus.PAID) {
+		return {
+			paymentStatus: PaymentStatus.PAID,
+			redirectUrl: successRedirect,
+			alreadyProcessed: true,
+		};
+	}
+
+	if (status === "fail" || status === "cancel") {
+		// the session never completed at the gateway - no money moved. Store
+		// the raw notification payload (I-G4 conditional writes).
+		if (status === "fail") {
+			await markFailed(payment.id, payload);
+		} else {
+			await markCancelled(payment.id, payload);
+		}
+
+		return {
+			paymentStatus:
+				status === "fail" ? PaymentStatus.FAILED : PaymentStatus.CANCELLED,
+			redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=${status}`,
+			alreadyProcessed: false,
+		};
+	}
+
+	// success (or IPN): the validator decides - only VALID / VALIDATED ever
+	// settles (I-G1)
+	const verification = await getAdapter(
+		PaymentGateway.SSLCOMMERZ,
+	).verifyAndSettle({ payment, providerPayload: payload });
+
+	if (verification.outcome !== "SETTLED") {
+		await markFailed(payment.id, verification.executedResult);
+
+		return {
+			paymentStatus: PaymentStatus.FAILED,
+			redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=failure`,
+			alreadyProcessed: false,
+		};
+	}
+
+	const settleResult = await settleFromProvider({
+		paymentId: payment.id,
+		executedResult: verification.executedResult,
+		reportedAmountMinorUnits: verification.reportedAmountMinorUnits,
+		gateway: PaymentGateway.SSLCOMMERZ,
+	});
+
+	// I-G2 trip: the charged amount does not match the initiation snapshot -
+	// held PROCESSING for admin review, never auto-settled
+	if (settleResult.outcome === "AMOUNT_MISMATCH") {
+		return {
+			paymentStatus: PaymentStatus.PROCESSING,
+			redirectUrl: `${config.frontend_url}?payment=error`,
+			alreadyProcessed: false,
+		};
+	}
+
+	if (isDeposit) {
+		await runDepositSettleSideEffects(
+			settleResult.result,
+			verification.executedResult,
+		);
+	} else {
+		await runInvoiceSettleSideEffects(settleResult.result);
+	}
+
+	return {
+		paymentStatus: PaymentStatus.PAID,
+		redirectUrl: successRedirect,
+		alreadyProcessed: false,
 	};
 };
 
@@ -376,6 +504,7 @@ const getSinglePayment = async (paymentId: string, user: RequestUser) => {
 
 export const PaymentServices = {
 	paymentCallback,
+	confirmSslcommerzPayment,
 	getGateways,
 	getMyPayments,
 	getAllPayments,
