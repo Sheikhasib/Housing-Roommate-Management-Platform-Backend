@@ -15,6 +15,7 @@ import { prisma } from "../../lib/prisma";
 import { createBkashPayment } from "../../lib/bKash";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
+import { writeAuditLog } from "../../utils/audit";
 import { createNotification } from "../../utils/notification";
 import { propertyManagerScope } from "../../utils/propertyAccess";
 import { sendTemplateEmail } from "../../utils/email";
@@ -262,6 +263,25 @@ const createUtilityBill = async (
 				tenantName: lease.tenantProfile.name,
 			});
 		}
+
+		// billing is always audited, owner or delegated manager alike
+		await writeAuditLog(
+			{
+				action: "UTILITY_BILL_CREATED",
+				entity: "Room",
+				entityId: room.id,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: null,
+				after: {
+					amount: payload.amount,
+					periodStart: periodStart.toISOString(),
+					invoicesCreated: createdInvoices.length,
+				},
+			},
+			tx,
+		);
 
 		return createdInvoices;
 	});

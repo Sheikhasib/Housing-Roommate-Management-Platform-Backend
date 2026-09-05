@@ -337,23 +337,42 @@ const updateProperty = async (
 	payload: IUpdatePropertyPayload,
 	user: RequestUser,
 ) => {
-	await resolveOperateProperty(propertyId, user);
+	const existingProperty = await resolveOperateProperty(propertyId, user);
 
-	return prisma.property.update({
-		where: { id: propertyId },
-		data: {
-			title: payload.title,
-			description: payload.description,
-			type: payload.type,
-			city: payload.city,
-			area: payload.area,
-			address: payload.address,
-			googleMapUrl: payload.googleMapUrl,
-			latitude: payload.latitude,
-			longitude: payload.longitude,
-			amenities: payload.amenities,
-			houseRules: payload.houseRules,
-		},
+	return prisma.$transaction(async (tx) => {
+		const updated = await tx.property.update({
+			where: { id: propertyId },
+			data: {
+				title: payload.title,
+				description: payload.description,
+				type: payload.type,
+				city: payload.city,
+				area: payload.area,
+				address: payload.address,
+				googleMapUrl: payload.googleMapUrl,
+				latitude: payload.latitude,
+				longitude: payload.longitude,
+				amenities: payload.amenities,
+				houseRules: payload.houseRules,
+			},
+		});
+
+		// listing mutations are always audited, owner or delegated manager alike
+		await writeAuditLog(
+			{
+				action: "PROPERTY_UPDATED",
+				entity: "Property",
+				entityId: propertyId,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { title: existingProperty.title, city: existingProperty.city },
+				after: { title: updated.title, city: updated.city },
+			},
+			tx,
+		);
+
+		return updated;
 	});
 };
 

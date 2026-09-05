@@ -6,6 +6,7 @@ import { prisma } from "../../lib/prisma";
 import { redisClient } from "../../lib/redis";
 import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
+import { writeAuditLog } from "../../utils/audit";
 import {
 	deleteFromCloudinary,
 	uploadFileToCloudinary,
@@ -401,20 +402,48 @@ const updateRoom = async (
 		);
 	}
 
-	const updatedRoom = await prisma.room.update({
-		where: { id: roomId },
-		data: {
-			name: payload.name,
-			description: payload.description,
-			type: payload.type,
-			bedCount: payload.bedCount,
-			monthlyRent: payload.monthlyRent,
-			bookingDeposit: payload.bookingDeposit,
-			minLeaseMonths: payload.minLeaseMonths,
-			sizeSqft: payload.sizeSqft,
-			isFurnished: payload.isFurnished,
-			amenities: payload.amenities,
-		},
+	const updatedRoom = await prisma.$transaction(async (tx) => {
+		const updated = await tx.room.update({
+			where: { id: roomId },
+			data: {
+				name: payload.name,
+				description: payload.description,
+				type: payload.type,
+				bedCount: payload.bedCount,
+				monthlyRent: payload.monthlyRent,
+				bookingDeposit: payload.bookingDeposit,
+				minLeaseMonths: payload.minLeaseMonths,
+				sizeSqft: payload.sizeSqft,
+				isFurnished: payload.isFurnished,
+				amenities: payload.amenities,
+			},
+		});
+
+		// occupancy-adjacent mutation (bedCount/rent): always audited,
+		// regardless of whether the actor is the owner or a delegated manager
+		await writeAuditLog(
+			{
+				action: "ROOM_UPDATED",
+				entity: "Room",
+				entityId: roomId,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: {
+					name: room.name,
+					bedCount: room.bedCount,
+					monthlyRent: room.monthlyRent.toString(),
+				},
+				after: {
+					name: updated.name,
+					bedCount: updated.bedCount,
+					monthlyRent: updated.monthlyRent.toString(),
+				},
+			},
+			tx,
+		);
+
+		return updated;
 	});
 
 	// a changed capacity can affect the occupancy-derived status (AVAILABLE /
@@ -446,15 +475,34 @@ const setRoomAvailability = async (
 		}
 	}
 
-	return prisma.room.update({
-		where: { id: roomId },
-		data: {
-			status: payload.status,
-			isPublished: payload.isPublished,
-			availableFrom: payload.availableFrom
-				? new Date(payload.availableFrom)
-				: undefined,
-		},
+	return prisma.$transaction(async (tx) => {
+		const updated = await tx.room.update({
+			where: { id: roomId },
+			data: {
+				status: payload.status,
+				isPublished: payload.isPublished,
+				availableFrom: payload.availableFrom
+					? new Date(payload.availableFrom)
+					: undefined,
+			},
+		});
+
+		// availability is a room status change: always audited
+		await writeAuditLog(
+			{
+				action: "ROOM_AVAILABILITY_UPDATED",
+				entity: "Room",
+				entityId: roomId,
+				actorId: user.userId,
+				actorEmail: user.email,
+				actorRole: user.role,
+				before: { status: room.status, isPublished: room.isPublished },
+				after: { status: updated.status, isPublished: updated.isPublished },
+			},
+			tx,
+		);
+
+		return updated;
 	});
 };
 
