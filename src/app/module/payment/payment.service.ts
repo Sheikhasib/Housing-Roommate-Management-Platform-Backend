@@ -1,7 +1,7 @@
-import PDFDocument from "pdfkit";
 import httpStatus from "http-status";
 import type Stripe from "stripe";
 import {
+	InvoiceType,
 	NotificationType,
 	PaymentGateway,
 	PaymentPurpose,
@@ -22,31 +22,11 @@ import type { RequestUser } from "../../middleware/checkAuth";
 import { AppError } from "../../utils/AppError";
 import { sendTemplateEmail } from "../../utils/email";
 import { createNotification } from "../../utils/notification";
-
-// Build a PDF receipt buffer (invoice style) for an email attachment.
-const buildReceiptPdf = async (
-	lines: { label: string; value: string }[],
-): Promise<Buffer> => {
-	const pdfDocument = new PDFDocument({ margin: 50 });
-	const pdfChunks: Buffer[] = [];
-
-	pdfDocument.on("data", (chunk: Buffer) => pdfChunks.push(chunk));
-
-	const pdfReadyPromise = new Promise<Buffer>((resolve) => {
-		pdfDocument.on("end", () => resolve(Buffer.concat(pdfChunks)));
-	});
-
-	pdfDocument.fontSize(20).text("Housing & Roommate", { align: "center" });
-	pdfDocument.fontSize(13).text("Payment Receipt", { align: "center" });
-	pdfDocument.moveDown(2);
-
-	lines.forEach((line) => {
-		pdfDocument.fontSize(11).text(`${line.label}: ${line.value}`);
-	});
-
-	pdfDocument.end();
-	return pdfReadyPromise;
-};
+import {
+	buildReceiptPdf,
+	formatReceiptDate,
+	gatewayDisplayName,
+} from "../../utils/pdf";
 
 // Post-settle side effects shared by every gateway's confirm path. Everything
 // is already committed at this point: failures must not 500 the caller's
@@ -66,17 +46,30 @@ const runDepositSettleSideEffects = async (
 	};
 
 	try {
-		const receiptPdf = await buildReceiptPdf([
-			{ label: "Receipt Type", value: "Booking Deposit" },
-			{ label: "Tenant Name", value: application.tenantProfile.name },
-			{ label: "Tenant Email", value: application.tenantProfile.email },
-			{ label: "Room", value: application.room.name },
-			{ label: "Lease Start", value: lease.startDate.toDateString() },
-			{ label: "Lease End", value: lease.endDate.toDateString() },
-			{ label: "Amount Paid", value: `${paymentRow.amount} BDT` },
-			{ label: "Transaction Id", value: trxID },
-			{ label: "Paid At", value: paymentExecuteTime },
-		]);
+		const gatewayName = gatewayDisplayName(paymentRow.gateway);
+
+		const receiptPdf = await buildReceiptPdf({
+			documentLabel: "Booking Deposit",
+			amount: paymentRow.amount,
+			amountNote: `Booking deposit · paid via ${gatewayName}`,
+			issuedAt: paymentExecuteTime ?? paymentRow.paidAt,
+			fields: [
+				{ label: "Billed To", value: application.tenantProfile.name },
+				{ label: "Email", value: application.tenantProfile.email },
+				{
+					label: "Property",
+					value: `${application.room.property.title}, ${application.room.property.city}`,
+				},
+				{ label: "Room", value: application.room.name },
+				{
+					label: "Lease Term",
+					value: `${formatReceiptDate(lease.startDate)} – ${formatReceiptDate(lease.endDate)}`,
+				},
+				{ label: "Payment Method", value: gatewayName },
+				{ label: "Transaction ID", value: trxID ?? "—" },
+				{ label: "Paid On", value: formatReceiptDate(paymentExecuteTime) },
+			],
+		});
 
 		await sendTemplateEmail({
 			to: application.tenantProfile.email,
@@ -107,13 +100,63 @@ const runInvoiceSettleSideEffects = async (result: any) => {
 		return;
 	}
 
+	const { invoice, payment: paymentRow } = result;
+	const tenantProfile = invoice.lease.tenantProfile;
+	const isUtility = invoice.type === InvoiceType.UTILITY;
+	const gatewayName = gatewayDisplayName(paymentRow?.gateway);
+
+	// styled PDF receipt, fail-soft like the deposit path
+	try {
+		const receiptPdf = await buildReceiptPdf({
+			documentLabel: isUtility ? "Utility Bill" : "Monthly Rent",
+			amount: paymentRow?.amount ?? invoice.amount,
+			amountNote: `${
+				isUtility ? "Utility bill share" : "Monthly rent"
+			} · paid via ${gatewayName}`,
+			issuedAt: paymentRow?.paidAt,
+			fields: [
+				{ label: "Billed To", value: tenantProfile.name },
+				{ label: "Email", value: tenantProfile.email },
+				{
+					label: "Property",
+					value: `${invoice.room.property.title}, ${invoice.room.property.city}`,
+				},
+				{ label: "Room", value: invoice.room.name },
+				{
+					label: "Invoice Type",
+					value: isUtility ? "Utility bill (split share)" : "Monthly rent",
+				},
+				{
+					label: "Billing Period",
+					value: `${formatReceiptDate(invoice.periodStart)} – ${formatReceiptDate(invoice.periodEnd)}`,
+				},
+				...(invoice.description
+					? [{ label: "Description", value: invoice.description }]
+					: []),
+				{ label: "Payment Method", value: gatewayName },
+				{ label: "Transaction ID", value: paymentRow?.bKashTrxId ?? "—" },
+				{ label: "Paid On", value: formatReceiptDate(paymentRow?.paidAt) },
+			],
+		});
+
+		await sendTemplateEmail({
+			to: tenantProfile.email,
+			subject: "Your Invoice Payment Receipt - Housing & Roommate",
+			template: "payment-receipt",
+			data: { name: tenantProfile.name },
+			attachments: [{ filename: "invoice-receipt.pdf", content: receiptPdf }],
+		});
+	} catch (error) {
+		console.log("Invoice receipt email failed:", error);
+	}
+
 	try {
 		await createNotification({
-			userId: result.invoice.lease.tenantProfile.userId,
+			userId: tenantProfile.userId,
 			type: NotificationType.PAYMENT,
 			title: "Invoice paid 💰",
-			message: `Your ${result.invoice.type.toLowerCase()} invoice of ৳${result.invoice.amount} was paid successfully.`,
-			data: { invoiceId: result.invoice.id },
+			message: `Your ${invoice.type.toLowerCase()} invoice of ৳${invoice.amount} was paid successfully.`,
+			data: { invoiceId: invoice.id },
 		});
 	} catch (error) {
 		console.log("Invoice-paid notification failed:", error);
