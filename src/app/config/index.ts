@@ -57,4 +57,5 @@ export default {
 	stripe_bdt_to_base: process.env.STRIPE_BDT_TO_BASE || "120",
 	backend_public_url:
 		process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL!,
+	cron_secret: process.env.CRON_SECRET,
 };

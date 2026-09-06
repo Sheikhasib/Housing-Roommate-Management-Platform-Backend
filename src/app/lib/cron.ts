@@ -288,21 +288,25 @@ export const reconcileStaleProcessingPayments = async () => {
 			} else if (payment.gateway === PaymentGateway.BKASH) {
 				// re-executing a completed session is an idempotent status
 				// probe; an ERRORED probe is ambiguous (a transient gateway
-				// fault must never wrongly downgrade a row)
-				try {
-					const { executeBkashPayment } = await import("./bKash");
-					const executed = await executeBkashPayment(
-						payment.bKashPaymentId as string,
-					);
-
-					verdict =
-						executed.transactionStatus === "Completed" ? "paid" : "failed";
-				} catch (error) {
-					console.log(
-						`Cron: bKash re-execute probe errored for ${payment.id}:`,
-						error,
-					);
+				// fault must never wrongly downgrade a row). A row without a
+				// provider payment id can never be probed - straight to
+				// ambiguous instead of a guaranteed-to-fail gateway call.
+				if (!payment.bKashPaymentId) {
 					verdict = "ambiguous";
+				} else {
+					try {
+						const { executeBkashPayment } = await import("./bKash");
+						const executed = await executeBkashPayment(payment.bKashPaymentId);
+
+						verdict =
+							executed.transactionStatus === "Completed" ? "paid" : "failed";
+					} catch (error) {
+						console.log(
+							`Cron: bKash re-execute probe errored for ${payment.id}:`,
+							error,
+						);
+						verdict = "ambiguous";
+					}
 				}
 			} else if (payment.gateway === PaymentGateway.SSLCOMMERZ) {
 				// re-validate against the validator using the val_id stored

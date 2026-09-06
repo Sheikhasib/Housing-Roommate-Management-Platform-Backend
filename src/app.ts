@@ -29,6 +29,7 @@ import { NotificationRoutes } from "./app/module/notification/notification.route
 import { ManagerRoutes } from "./app/module/manager/manager.route";
 import { AdminRoutes } from "./app/module/admin/admin.route";
 import { AnalyticsRoutes } from "./app/module/analytics/analytics.route";
+import { CronRoutes } from "./app/module/cron/cron.route";
 
 const app: Application = express();
 
@@ -142,6 +143,9 @@ app.use("/api/v1/admin", AdminRoutes);
 
 // Analytics routes
 app.use("/api/v1/analytics", AnalyticsRoutes);
+
+// Vercel Cron trigger (daily background jobs) - not under /api/v1
+app.use("/api/cron", CronRoutes);
 
 // global error handler
 app.use(globalErrorHandler);

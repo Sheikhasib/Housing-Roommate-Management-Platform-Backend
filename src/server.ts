@@ -74,7 +74,13 @@ const main = async () => {
 		await generateMonthlyRentInvoices();
 		await finalizeExpiredLeases();
 		await expirePendingApplications();
-		await reconcileStaleProcessingPayments();
+
+		// the stale-payment probe hits live gateway APIs for every stuck
+		// PROCESSING row; skip it in development so dev restarts don't spam
+		// gateway errors (the daily scheduled run still covers dev)
+		if (config.node_env !== "development") {
+			await reconcileStaleProcessingPayments();
+		}
 
 		app.listen(PORT, () => {
 			console.log(`Server is running on port ${PORT}`);

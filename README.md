@@ -132,6 +132,9 @@ flowchart LR
 ## 📁 Project Structure
 
 ```
+api/
+  index.ts          # Vercel serverless entry (exports the Express app)
+vercel.json         # Vercel builds/routes + daily cron trigger
 prisma/
   schema/            # one .prisma file per domain (enums, user, property, room, ...)
   migrations/        # versioned SQL migrations
@@ -257,6 +260,7 @@ nothing is missed after downtime.
 | `npm run prisma:generate` | Regenerate the Prisma client |
 | `npm run prisma:migrate` | Run `prisma migrate dev` |
 | `npm run prisma:migrate:deploy` | Apply migrations non-interactively (prod) |
+| `npm run seed` | Seed demo accounts into the configured `DATABASE_URL` (for hosted DBs) |
 | `npm run lint:check` / `lint:fix` | Biome lint |
 | `npm run format:check` / `format:fix` | Biome format |
 
@@ -306,6 +310,9 @@ SSLCOMMERZ_VALIDATE_URL=https://sandbox.sslcommerz.com/validator/api/validations
 # Stripe (optional — enables when the secret key is set; charges in STRIPE_CURRENCY)
 STRIPE_SECRET_KEY=...          STRIPE_WEBHOOK_SECRET=...
 STRIPE_CURRENCY=usd            STRIPE_BDT_TO_BASE=120
+
+# ── Vercel Cron ─────────────────────────────────────────────────────────────
+CRON_SECRET=...   # Bearer guard for /api/cron/daily (set a strong value in Vercel)
 ```
 
 **Gateway enablement is env-driven.** bKash is always on; SSLCommerz appears when
@@ -435,9 +442,12 @@ auto-settles**.
 
 ## ⏰ Background Jobs (Cron)
 
-All jobs are **idempotent** and run a catch-up pass on boot:
+All jobs are **idempotent** and run a catch-up pass on boot of a long-running
+host (`npm run dev`). On **Vercel** there is no always-on process, so one daily
+Vercel Cron instead triggers `GET /api/cron/daily` (guarded by `CRON_SECRET`),
+which runs all four jobs in sequence:
 
-| Schedule | Job | What it does |
+| Schedule (host) | Job | What it does |
 | -------- | --- | ------------ |
 | Daily `00:10` | `generateMonthlyRentInvoices` | Creates RENT invoices for active leases from month two onward (deposit covers month one). |
 | Daily `00:15` | `finalizeExpiredLeases` | Leases past their end date → `COMPLETED`; releases the bed, closes live roommate memberships, notifies members. |
@@ -582,6 +592,7 @@ GET    /analytics/tenant-analytics   GET /analytics/owner-analytics   GET /analy
 # Meta
 GET    /                          # welcome + API banner
 GET    /api/v1/health             # health check
+GET    /api/cron/daily            # Vercel Cron trigger — runs all daily jobs (CRON_SECRET)
 ```
 
 Public endpoints (no auth): auth register/login/google/password flows, room & property public
@@ -591,25 +602,54 @@ search/detail, and the three payment notify routes above.
 
 ## ☁️ Deployment
 
-The API is a standard Node/Express process — deployable on **Render**, **Railway**, **Fly.io** or a
-VPS. A Render blueprint (`render.yaml`) is included: `npm install` (postinstall regenerates the
-Prisma client) → `npm start` → health check at `/api/v1/health`.
+This repo is set up to deploy on **Vercel** as a serverless API. Vercel runs the
+Express app from `api/index.ts` (no always-on server), which means a few boot-time
+behaviours move elsewhere:
 
-Deployment checklist:
+| Local / always-on host (`npm run dev`) | Vercel (serverless) |
+| -------------------------------------- | ------------------- |
+| `server.ts` boots: seeds + `node-cron` + `app.listen` | `api/index.ts` exports the app; no `listen` |
+| Background jobs scheduled in-process (4× daily) | One Vercel Cron hits `GET /api/cron/daily` |
+| Seeds run automatically on boot | Run once with `npm run seed` (see below) |
+| `localhost` Postgres/Redis | Hosted **Postgres** (Neon) + **Redis** (Upstash) |
 
-- Set every `.env.example` variable in the hosting dashboard (see
-  [Environment Variables](#environment-variables)).
-- Run migrations before boot: `npm run prisma:migrate:deploy`.
-- Point `FRONTEND_URL` and `BACKEND_URL` at the live domains.
-- Make the **provider-facing URLs public and reachable**:
-  - bKash: `BKASH_CALLBACK_URL` in the form `https://your-api.com/api/v1` (callback is appended).
-  - SSLCommerz: store `success_url` / `fail_url` / `cancel_url` / `ipn_url` → your
-    `/api/v1/payment/confirm` and `/api/v1/payment/ipn`.
-  - Stripe: register the webhook endpoint `https://your-api.com/api/v1/payment/webhook/stripe`
-    for `checkout.session.completed` + `checkout.session.expired` and set `STRIPE_WEBHOOK_SECRET`.
+### Deploy steps
 
-> The bundled `render.yaml` currently lists only the bKash env group. When you deploy with
-> SSLCommerz/Stripe or the seeded demo accounts, add their keys to the blueprint's `envVars`.
+1. **Host Postgres and Redis** — create a Neon (Postgres) and Upstash (Redis)
+   instance; grab both connection strings.
+2. **Push the repo to GitHub** and **Import** it in Vercel (Framework Preset:
+   *Other*; Node.js ≥ 20). `vercel.json` wires `api/index.ts` as the single
+   function and registers the daily cron — no build command needed, `npm install`
+   (and its `prisma generate` postinstall) runs automatically.
+3. **Set environment variables** in Vercel → Project → Settings → Environment
+   (every `.env.example` key), with production values:
+   - `DATABASE_URL` = hosted Postgres; `REDIS_*` = Upstash.
+   - `BACKEND_URL`, `BACKEND_PUBLIC_URL` = `https://<your-project>.vercel.app`.
+   - `BKASH_CALLBACK_URL` = `https://<your-project>.vercel.app/api/v1`.
+   - `FRONTEND_URL` = the real frontend domain.
+   - `CRON_SECRET` = a strong random value (Vercel Cron authenticates with it).
+   - `SUPER_ADMIN_*` / `TESTER_*` = the demo credentials (defaults in `.env.example`).
+4. **Apply migrations + seed the hosted DB once** (from your machine, pointing at
+   the hosted `DATABASE_URL`):
+
+   ```bash
+   npm run prisma:migrate:deploy
+   npm run seed
+   ```
+
+5. **Deploy.** Open `https://<your-project>.vercel.app/` and
+   `/api/v1/health` to confirm.
+6. **Provider URLs** — make sure the gateway dashboards point at Vercel:
+   - bKash: callback base = `https://<your-project>.vercel.app/api/v1`.
+   - SSLCommerz: success/fail/cancel/IPN → `/api/v1/payment/confirm` + `/api/v1/payment/ipn`.
+   - Stripe: register webhook `https://<your-project>.vercel.app/api/v1/payment/webhook/stripe`
+     for `checkout.session.completed` + `checkout.session.expired`.
+
+> **Serverless notes** — functions are stateless and short-lived: cron is driven
+> by Vercel Cron (times are UTC), uploads are in-memory then pushed to
+> Cloudinary, PDFs/emails are generated per-request, and all state lives in
+> Postgres/Redis. See the bundled *"Node.js TypeScript Project Setup & Vercel
+> Deployment Guide.md"* for background on the patterns to avoid.
 
 ---
 

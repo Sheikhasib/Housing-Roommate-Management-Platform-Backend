@@ -1,7 +1,7 @@
 {
     "name": "project-housing-roommate-management-backend",
     "version": "1.0.0",
-    "description": "Housing & Roommate Management Platform - Backend (Rent listings, roommate matching, viewing requests, applications, leases, rent/utility invoices, bKash payments, maintenance)",
+    "description": "Housing & Roommate Management Platform - Backend (Rent listings, roommate matching, viewing requests, applications, leases, rent/utility invoices, multi-gateway payments - bKash/SSLCommerz/Stripe, maintenance)",
     "main": "index.js",
     "scripts": {
         "dev": "tsx watch src/server.ts",
@@ -10,6 +10,7 @@
         "prisma:generate": "node node_modules/prisma/build/index.js generate",
         "prisma:migrate": "node node_modules/prisma/build/index.js migrate dev",
         "prisma:migrate:deploy": "node node_modules/prisma/build/index.js migrate deploy",
+        "seed": "tsx scripts/seed.ts",
         "postinstall": "node node_modules/prisma/build/index.js generate",
         "test": "echo \"Error: no test specified\" && exit 1",
         "format:check": "npx @biomejs/biome format ./src",
