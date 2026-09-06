@@ -36,6 +36,7 @@ export type InitiateInput = {
 	description: string;
 	payerEmail: string;
 	payerName?: string;
+	payerPhone?: string; // tenant contact number, when known
 };
 
 export type InitiateResult = {

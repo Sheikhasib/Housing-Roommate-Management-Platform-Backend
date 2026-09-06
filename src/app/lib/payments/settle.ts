@@ -25,11 +25,20 @@ import { recalculateRoomStatus } from "../../utils/roomStatus";
 export const verifyAmount = (
 	expectedMinorUnits: number | null,
 	reportedMinorUnits: number | null,
+	ledgerMinorUnits: number,
 ): boolean => {
-	if (expectedMinorUnits === null || reportedMinorUnits === null) {
-		// rows initiated before the snapshot existed settle on the row amount
-		// (legacy behavior preserved for bKash flows)
-		return reportedMinorUnits === null;
+	// rows initiated before the snapshot column existed (pre-migration,
+	// bKash-only): fall back to the ledger amount (BDT x100). A null
+	// reported amount (the admin resolve path without a provider amount)
+	// settles on admin authority.
+	if (expectedMinorUnits === null) {
+		return (
+			reportedMinorUnits === null || reportedMinorUnits === ledgerMinorUnits
+		);
+	}
+
+	if (reportedMinorUnits === null) {
+		return false;
 	}
 
 	return expectedMinorUnits === reportedMinorUnits;
@@ -142,9 +151,18 @@ export const handleDepositSuccess = async (
 		return { alreadyPaid: true, applicationId: payment.applicationId };
 	}
 
+	// room includes property so the receipt side effects can print the
+	// property title/city
 	const application = await tx.application.findUnique({
 		where: { id: payment.applicationId },
-		include: { room: true, tenantProfile: true },
+		include: {
+			room: {
+				include: {
+					property: { select: { title: true, city: true, area: true } },
+				},
+			},
+			tenantProfile: true,
+		},
 	});
 
 	if (!application || application.isDeleted) {
@@ -241,7 +259,9 @@ export const handleDepositSuccess = async (
 };
 
 // ---- RENT / UTILITY invoice payment succeeds ----
-// (moved verbatim from payment.service.ts; byte-identical logic)
+// (moved from payment.service.ts; identical money logic - the include adds
+// room/property and the return carries the settled payment row for the
+// receipt side effects)
 export const handleInvoiceSuccess = async (
 	tx: any,
 	paymentId: string,
@@ -251,7 +271,15 @@ export const handleInvoiceSuccess = async (
 		where: { id: paymentId },
 		include: {
 			invoice: {
-				include: { lease: { include: { tenantProfile: true } } },
+				include: {
+					room: {
+						select: {
+							name: true,
+							property: { select: { title: true, city: true, area: true } },
+						},
+					},
+					lease: { include: { tenantProfile: true } },
+				},
 			},
 		},
 	});
@@ -260,13 +288,15 @@ export const handleInvoiceSuccess = async (
 		throw new AppError(httpStatus.NOT_FOUND, "Invoice payment not found");
 	}
 
+	let settledPayment = payment;
+
 	if (payment.status !== PaymentStatus.PAID) {
 		await tx.invoice.update({
 			where: { id: payment.invoiceId },
 			data: { status: InvoiceStatus.PAID },
 		});
 
-		await tx.payment.update({
+		settledPayment = await tx.payment.update({
 			where: { id: payment.id },
 			data: {
 				status: PaymentStatus.PAID,
@@ -277,7 +307,7 @@ export const handleInvoiceSuccess = async (
 		});
 	}
 
-	return { invoice: payment.invoice };
+	return { invoice: payment.invoice, payment: settledPayment };
 };
 
 // ---- the single provider-verified settle entry point ----
@@ -321,7 +351,16 @@ export const settleFromProvider = async (
 	}
 
 	// I-G2: provider-reported amount must match the initiation snapshot
-	if (!verifyAmount(payment.providerChargeAmount, reportedAmountMinorUnits)) {
+	// (legacy rows without a snapshot fall back to the ledger amount)
+	const ledgerMinorUnits = Math.round(Number(payment.amount) * 100);
+
+	if (
+		!verifyAmount(
+			payment.providerChargeAmount,
+			reportedAmountMinorUnits,
+			ledgerMinorUnits,
+		)
+	) {
 		await writeAuditLog({
 			action: "PAYMENT_AMOUNT_MISMATCH",
 			entity: "Payment",
@@ -331,7 +370,7 @@ export const settleFromProvider = async (
 			actorRole: actorRole ?? "SYSTEM",
 			before: { status: payment.status },
 			after: {
-				expected: payment.providerChargeAmount,
+				expected: payment.providerChargeAmount ?? ledgerMinorUnits,
 				reported: reportedAmountMinorUnits,
 				gateway,
 			},

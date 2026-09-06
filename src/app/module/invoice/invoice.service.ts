@@ -392,6 +392,7 @@ const payInvoice = async (
 		description: `${invoice.type.toLowerCase()} invoice payment`,
 		payerEmail: user.email,
 		payerName: tenantProfile.name,
+		payerPhone: tenantProfile.contactNumber ?? undefined,
 	});
 
 	// create the payment row (or refresh an earlier failed attempt) with the

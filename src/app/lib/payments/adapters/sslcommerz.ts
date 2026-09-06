@@ -50,8 +50,8 @@ export const sslcommerzAdapter: PaymentGatewayAdapter = {
 			cus_state: "N/A",
 			cus_postcode: 1000,
 			cus_country: "Bangladesh",
-			cus_phone: "01711111111",
-			cus_fax: "01711111111",
+			cus_phone: input.payerPhone || "01711111111",
+			cus_fax: input.payerPhone || "01711111111",
 		};
 
 		try {

@@ -627,6 +627,7 @@ const payDeposit = async (
 		description: `Booking deposit for ${application.room.name}`,
 		payerEmail: user.email,
 		payerName: tenantProfile.name,
+		payerPhone: tenantProfile.contactNumber ?? undefined,
 	});
 
 	// create the payment row (or refresh an earlier failed attempt) with the
