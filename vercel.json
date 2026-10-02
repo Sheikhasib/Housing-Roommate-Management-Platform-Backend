@@ -3,14 +3,21 @@
 	"version": 2,
 	"builds": [
 		{
-			"src": "api/index.ts",
+			"src": "dist/vercel.js",
 			"use": "@vercel/node",
 			"config": {
-				"includeFiles": ["src/app/templates/**/*.ejs"]
+				"includeFiles": [
+					"src/app/templates/**/*.ejs"
+				]
 			}
 		}
 	],
-	"routes": [{ "src": "/(.*)", "dest": "api/index.ts" }],
+	"routes": [
+		{
+			"src": "/(.*)",
+			"dest": "dist/vercel.js"
+		}
+	],
 	"crons": [
 		{
 			"path": "/api/cron/daily",

@@ -31,10 +31,25 @@ const MAGIC_SIGNATURES: Record<string, (bytes: Buffer) => boolean> = {
 	"application/pdf": (b) => b.subarray(0, 4).toString("latin1") === "%PDF",
 };
 
+// Some API clients (Thunder Client, raw fetch) send files with the generic
+// application/octet-stream part type instead of the real one. Those parts
+// are accepted here and resolved by content sniffing after the buffer lands.
+const GENERIC_MIME_TYPES = ["application/octet-stream"];
+
 const hasValidSignature = (file: Express.Multer.File) => {
 	const check = MAGIC_SIGNATURES[file.mimetype];
 	if (!check) return false;
 	return check(file.buffer);
+};
+
+const detectMimetype = (bytes: Buffer): string | null => {
+	for (const [mimetype, check] of Object.entries(MAGIC_SIGNATURES)) {
+		if (check(bytes)) {
+			return mimetype;
+		}
+	}
+
+	return null;
 };
 
 // multer's fileFilter fires BEFORE memoryStorage has buffered any bytes, so
@@ -50,7 +65,10 @@ const makeGuardedUpload = (allowed: string[], label: string) => {
 			file: Express.Multer.File,
 			cb: multer.FileFilterCallback,
 		) => {
-			if (allowed.includes(file.mimetype)) {
+			if (
+				allowed.includes(file.mimetype) ||
+				GENERIC_MIME_TYPES.includes(file.mimetype)
+			) {
 				cb(null, true);
 				return;
 			}
@@ -80,6 +98,22 @@ const makeGuardedUpload = (allowed: string[], label: string) => {
 						: ((req.files as Express.Multer.File[] | undefined) ?? []);
 
 					for (const file of files) {
+						if (GENERIC_MIME_TYPES.includes(file.mimetype)) {
+							// resolve the real type from the content: reject unless the
+							// bytes match one of the allowed signatures
+							const detected = detectMimetype(file.buffer);
+
+							if (!detected || !allowed.includes(detected)) {
+								throw new AppError(
+									httpStatus.BAD_REQUEST,
+									`Only ${label} files are allowed (${allowed.join(", ")})`,
+								);
+							}
+
+							file.mimetype = detected;
+							continue;
+						}
+
 						if (!allowed.includes(file.mimetype) || !hasValidSignature(file)) {
 							throw new AppError(
 								httpStatus.BAD_REQUEST,

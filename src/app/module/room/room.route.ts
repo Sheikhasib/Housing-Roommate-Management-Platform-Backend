@@ -19,6 +19,14 @@ router.post(
 // Get my rooms - OWNER
 router.get("/my-rooms", auth(Role.OWNER), RoomController.getMyRooms);
 
+// Property vacancy + upcoming-release board (counts/dates only - no tenant
+// identities, so the manager boundary is safe)
+router.get(
+	"/availability/:propertyId",
+	auth(Role.OWNER, Role.PROPERTY_MANAGER, Role.ADMIN, Role.SUPER_ADMIN),
+	RoomController.getPropertyAvailability,
+);
+
 // Public room search (no auth)
 router.get("/public", RoomController.getPublicRooms);
 

@@ -1,6 +1,6 @@
 import express from "express";
-import app from "../src/app";
-import { redisClient } from "../src/app/lib/redis";
+import app from "./app";
+import { redisClient } from "./app/lib/redis";
 
 let bootPromise: Promise<unknown> | null = null;
 
@@ -19,8 +19,9 @@ const ensureRedisConnected = () => {
 // Start the handshake during cold start so the first OTP/token call is fast.
 void ensureRedisConnected();
 
-// Vercel executes this file as the serverless function. The wrapper awaits the
-// (already resolved) Redis handshake, then delegates to the full Express app.
+// Vercel executes the bundled output of this file as the serverless function
+// (see tsup.config.ts -> dist/vercel.js). The wrapper awaits the (already
+// resolved) Redis handshake, then delegates to the full Express app.
 // Notifications, seeds and node-cron are intentionally NOT run here - they are
 // handled by scripts/seed.ts and the Vercel Cron job (/api/cron/daily).
 const serverlessApp = express();

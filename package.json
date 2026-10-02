@@ -5,7 +5,7 @@
     "main": "index.js",
     "scripts": {
         "dev": "tsx watch src/server.ts",
-        "build": "tsc",
+        "build": "tsc && tsup",
         "start": "tsx src/server.ts",
         "prisma:generate": "node node_modules/prisma/build/index.js generate",
         "prisma:migrate": "node node_modules/prisma/build/index.js migrate dev",
@@ -62,6 +62,7 @@
         "@types/pdfkit": "^0.17.6",
         "@types/pg": "^8.20.0",
         "prisma": "^7.9.1",
+        "tsup": "^8.5.1",
         "typescript": "^5.9.3"
     }
 }

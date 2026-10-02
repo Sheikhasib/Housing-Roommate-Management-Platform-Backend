@@ -1,6 +1,7 @@
 import httpStatus from "http-status";
 import {
 	ApplicationStatus,
+	LeaseStatus,
 	NotificationType,
 	PaymentPurpose,
 	PaymentStatus,
@@ -103,13 +104,20 @@ const applyForRoom = async (
 			);
 		}
 
-		// a tenant can hold only one live application per room
+		// a tenant can hold only one live application per room: a fresh
+		// PENDING/APPROVED one, or one whose lease is still running. An
+		// APPROVED application whose lease already ended (COMPLETED/
+		// TERMINATED) is history — the former tenant may re-apply.
 		const duplicateApplication = await tx.application.findFirst({
 			where: {
 				tenantProfileId: tenantProfile.id,
 				roomId: room.id,
 				isDeleted: false,
 				status: { in: [ApplicationStatus.PENDING, ApplicationStatus.APPROVED] },
+				OR: [
+					{ lease: { is: null } },
+					{ lease: { status: LeaseStatus.ACTIVE, isDeleted: false } },
+				],
 			},
 		});
 

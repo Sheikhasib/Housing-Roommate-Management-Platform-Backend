@@ -1,0 +1,1944 @@
+{
+	"info": {
+		"_postman_id": "housing-roommate-walkthrough",
+		"name": "Housing & Roommate — Guided Walkthrough (run top to bottom)",
+		"description": "An ordered, self-wiring demo of the whole platform. Steps 0-8 match docs/WALKTHROUGH.md. Role tokens and ids (roomId, propertyId, applicationId, viewingId, leaseId, invoiceId...) are captured automatically; step boundaries swap tokens for you.\n\nMoney note: deposits/invoices are completed on the gateway page in a browser (step 6 returns a paymentUrl). Until a deposit is paid there is no lease, so Step 7 items that need a lease will 4xx - that is the intended dependency.\n\nIMPORTANT: set base_url to the host only (e.g. http://localhost:5000). Do NOT include /api/v1 — every request path already contains it.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:5000"
+		},
+		{
+			"key": "accessToken",
+			"value": ""
+		},
+		{
+			"key": "tenantAccessToken",
+			"value": ""
+		},
+		{
+			"key": "ownerAccessToken",
+			"value": ""
+		},
+		{
+			"key": "adminAccessToken",
+			"value": ""
+		},
+		{
+			"key": "managerAccessToken",
+			"value": ""
+		},
+		{
+			"key": "propertyId",
+			"value": ""
+		},
+		{
+			"key": "newRoomId",
+			"value": ""
+		},
+		{
+			"key": "roomId",
+			"value": ""
+		},
+		{
+			"key": "applicationId",
+			"value": ""
+		},
+		{
+			"key": "viewingId",
+			"value": ""
+		},
+		{
+			"key": "requestId",
+			"value": ""
+		},
+		{
+			"key": "leaseId",
+			"value": ""
+		},
+		{
+			"key": "invoiceId",
+			"value": ""
+		},
+		{
+			"key": "maintenanceRequestId",
+			"value": ""
+		}
+	],
+	"item": [
+		{
+			"name": "Step 0 · Boot & health",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"health"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Confirm the server is up. base_url should point at your backend (localhost:5000 or the Vercel URL)."
+				}
+			]
+		},
+		{
+			"name": "Step 1 · Login (demo accounts) — tokens auto-save",
+			"item": [
+				{
+					"name": "Login - Tenant (demo)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"tenant@housing.com\",\n    \"password\": \"Tenant@1234\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Logs in the pre-verified tenant. Saves tenantAccessToken + accessToken automatically.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"if (j && j.data && j.data.accessToken) {",
+									"  pm.collectionVariables.set('tenantAccessToken', j.data.accessToken);",
+									"  pm.collectionVariables.set('accessToken', j.data.accessToken);",
+									"  console.log('Tenant token captured');",
+									"} else {",
+									"  console.warn('No accessToken in response; cookies may be used instead.');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - Owner (demo)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"owner@housing.com\",\n    \"password\": \"Owner@1234\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Logs in the pre-approved owner (owns the seeded 'Green View Residence').",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"if (j && j.data && j.data.accessToken) {",
+									"  pm.collectionVariables.set('ownerAccessToken', j.data.accessToken);",
+									"  pm.collectionVariables.set('accessToken', j.data.accessToken);",
+									"  console.log('Owner token captured');",
+									"} else {",
+									"  console.warn('No accessToken in response; cookies may be used instead.');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - Admin (demo)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"admin@housing.com\",\n    \"password\": \"Admin@1234\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Logs in the admin for later governance steps.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"if (j && j.data && j.data.accessToken) {",
+									"  pm.collectionVariables.set('adminAccessToken', j.data.accessToken);",
+									"  pm.collectionVariables.set('accessToken', j.data.accessToken);",
+									"  console.log('Admin token captured');",
+									"} else {",
+									"  console.warn('No accessToken in response; cookies may be used instead.');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - Manager (demo)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							],
+							"query": []
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"manager@housing.com\",\n    \"password\": \"Manager@1234\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Logs in the seeded property manager (assigned to the seed property).",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"if (j && j.data && j.data.accessToken) {",
+									"  pm.collectionVariables.set('managerAccessToken', j.data.accessToken);",
+									"  pm.collectionVariables.set('accessToken', j.data.accessToken);",
+									"  console.log('Manager token captured');",
+									"} else {",
+									"  console.warn('No accessToken in response; cookies may be used instead.');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Step 2 · Browse as a visitor (no token)",
+			"item": [
+				{
+					"name": "Public Rooms (search/cache)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/room/public?page=1&limit=10&city=Dhaka&maxRent=20000&type=SHARED_ROOM",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"room",
+								"public"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "city",
+									"value": "Dhaka"
+								},
+								{
+									"key": "maxRent",
+									"value": "20000"
+								},
+								{
+									"key": "type",
+									"value": "SHARED_ROOM"
+								}
+							]
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Lists published shared rooms in Dhaka (Redis-cached). Captures the first available room as roomId. You may change the query filters.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const arr = Array.isArray(j && j.data) ? j.data : [];",
+									"const room = arr.find((r) => r.status === 'AVAILABLE' && r.isPublished) || arr[0];",
+									"if (room && room.id) {",
+									"  pm.collectionVariables.set('roomId', room.id);",
+									"  console.log('roomId = ' + room.id);",
+									"} else { console.warn('No published room found.'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Public Rooms - Upcoming (rooms freeing up)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/room/public?availability=upcoming",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"room",
+								"public"
+							],
+							"query": [
+								{
+									"key": "availability",
+									"value": "upcoming"
+								}
+							]
+						},
+						"description": "Same public search, but `availability=upcoming`: shows published rooms that are currently FULL but have a bed freeing up — each row carries nextAvailableDate (earliest ACTIVE lease end, clamped to now) and upcomingReleaseDates. Use `availability=all` to see everything except MAINTENANCE."
+					},
+					"response": []
+				},
+				{
+					"name": "Public Properties",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/property/public?page=1&limit=10&city=Dhaka",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"property",
+								"public"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "city",
+									"value": "Dhaka"
+								}
+							]
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Public property listing - same data a logged-out visitor sees."
+				}
+			]
+		},
+		{
+			"name": "Step 3 · Owner builds a fresh listing",
+			"item": [
+				{
+					"name": "My Properties",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/property/my-properties",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"property",
+								"my-properties"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Owner token. Captures your first existing propertyId.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('ownerAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const arr = Array.isArray(j && j.data) ? j.data : [];",
+									"if (arr.length && arr[0] && arr[0].id) {",
+									"  pm.collectionVariables.set('propertyId', arr[0].id);",
+									"  console.log('captured propertyId = ' + arr[0].id);",
+									"} else { console.warn('No propertyId found (empty list?).'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Create Property",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/property",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"property"
+							],
+							"query": []
+						},
+						"description": "latitude (-90..90) / longitude (-180..180) are optional map-pin coordinates (display only).",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n\t\"title\": \"Green View Residence 2\",\n\t\"description\": \"Family apartment near Banani market.\",\n\t\"type\": \"APARTMENT\",\n\t\"city\": \"Dhaka\",\n\t\"area\": \"Banani\",\n\t\"address\": \"House 20, Road 7\",\n\t\"amenities\": [\n\t\t\"wifi\",\n\t\t\"lift\",\n\t\t\"parking\"\n\t],\n\t\"googleMapUrl\": \"https://maps.app.goo.gl/xxxx\",\n\t\"latitude\": 23.7925,\n\t\"longitude\": 90.4078\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Creates a NEW property and overwrites propertyId with it, so repeat runs always use a fresh listing.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const obj = (j && j.data && !Array.isArray(j.data)) ? j.data : (Array.isArray(j.data) ? j.data[0] : null);",
+									"if (obj && obj.id) {",
+									"  pm.collectionVariables.set('propertyId', obj.id);",
+									"  console.log('captured propertyId = ' + obj.id);",
+									"} else { console.warn('No id in created response.'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Create Room",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/room",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"room"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"propertyId\": \"{{propertyId}}\",\n    \"name\": \"Room 204\",\n    \"type\": \"PRIVATE_ROOM\",\n    \"bedCount\": 1,\n    \"monthlyRent\": 15000,\n    \"bookingDeposit\": 15000,\n    \"minLeaseMonths\": 6,\n    \"isFurnished\": true,\n    \"amenities\": [\n        \"balcony\",\n        \"desk\"\n    ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Adds a room to the new property (body uses {{propertyId}}). Captures newRoomId.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const obj = (j && j.data && !Array.isArray(j.data)) ? j.data : (Array.isArray(j.data) ? j.data[0] : null);",
+									"if (obj && obj.id) {",
+									"  pm.collectionVariables.set('newRoomId', obj.id);",
+									"  console.log('captured newRoomId = ' + obj.id);",
+									"} else { console.warn('No id in created response.'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Set Availability / Publish",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/room/{{newRoomId}}/availability",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"room",
+								"{{newRoomId}}",
+								"availability"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"AVAILABLE\",\n    \"isPublished\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Publishes the fresh room so tenants can find/apply to it. Path uses {{newRoomId}}."
+				},
+				{
+					"name": "Property Availability Board (vacancy + upcoming)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/room/availability/{{propertyId}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"room",
+								"availability",
+								":propertyId"
+							]
+						},
+						"description": "Per-property vacancy board: summary (totalRooms, totalBeds, occupiedBeds, vacantBeds, occupancyRate, fullyVacantRooms, partiallyOccupiedRooms, fullRooms, maintenanceRooms, nextAvailableDate) + per-room rows with vacantBeds / availableNow / nextAvailableDate / upcomingReleaseDates. Counts and dates only (no tenant identities). OWNER (owns it), assigned PROPERTY_MANAGER, or ADMIN. Overwrite {{propertyId}} first (e.g. from My Properties)."
+					},
+					"response": [],
+					"description": "undefined In this step {{propertyId}} was just captured by Create Property."
+				}
+			]
+		},
+		{
+			"name": "Step 4 · Tenant applies + requests a viewing",
+			"item": [
+				{
+					"name": "Request Viewing",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/viewing",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"viewing"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"roomId\": \"{{roomId}}\",\n    \"preferredDate\": \"2026-09-10T09:00:00Z\",\n    \"timeSlot\": \"MORNING\",\n    \"message\": \"Would love to see the room on Saturday.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Tenant token. Uses the fresh published room (falls back to the seeded room). Captures viewingId/requestId.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('tenantAccessToken'));",
+									"pm.collectionVariables.set('roomId', pm.collectionVariables.get('newRoomId') || pm.collectionVariables.get('roomId'));"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const obj = (j && j.data && !Array.isArray(j.data)) ? j.data : (Array.isArray(j.data) ? j.data[0] : null);",
+									"if (obj && obj.id) {",
+									"  pm.collectionVariables.set('viewingId', obj.id);",
+									"  pm.collectionVariables.set('requestId', obj.id);",
+									"  console.log('viewingId = ' + obj.id);",
+									"} else { console.warn('No viewing id in response.'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Apply for Room",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/application/apply",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"application",
+								"apply"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"roomId\": \"{{roomId}}\",\n    \"moveInDate\": \"2026-09-20T00:00:00Z\",\n    \"leaseMonths\": 12,\n    \"message\": \"I am a software engineer, non-smoker.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Applies to the fresh room (body uses {{roomId}}). No id captured - the owner picks it up next."
+				},
+				{
+					"name": "My Applications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/application/my-applications",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"application",
+								"my-applications"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Optional: see your new PENDING application."
+				}
+			]
+		},
+		{
+			"name": "Step 5 · Owner reviews (approve viewing + application)",
+			"item": [
+				{
+					"name": "Owner Viewing Requests",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/viewing/owner-requests",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"viewing",
+								"owner-requests"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Owner token. Captures the first PENDING viewing request as viewingId/requestId.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('ownerAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const arr = Array.isArray(j && j.data) ? j.data : [];",
+									"const pending = arr.find((v) => v.status === 'PENDING') || arr[0];",
+									"if (pending && pending.id) {",
+									"  pm.collectionVariables.set('viewingId', pending.id);",
+									"  pm.collectionVariables.set('requestId', pending.id);",
+									"  console.log('viewingId = ' + pending.id);",
+									"} else { console.warn('No viewing request to approve.'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Approve Viewing",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/viewing/{{requestId}}/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"viewing",
+								"{{requestId}}",
+								"status"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"APPROVED\",\n    \"scheduledDateTime\": \"2026-09-10T10:00:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Approves the viewing request (path uses {{requestId}} = the viewing)."
+				},
+				{
+					"name": "Owner Applications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/application/owner-applications?status=PENDING",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"application",
+								"owner-applications"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "PENDING"
+								}
+							]
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Owner sees tenant applications on their rooms. Captures the PENDING one as applicationId.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const arr = Array.isArray(j && j.data) ? j.data : [];",
+									"const pending = arr.find((a) => a.status === 'PENDING') || arr[0];",
+									"if (pending && pending.id) {",
+									"  pm.collectionVariables.set('applicationId', pending.id);",
+									"  console.log('applicationId = ' + pending.id + ' (status ' + (pending.status||'?') + ')');",
+									"} else { console.warn('No application to approve.'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Approve Application",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/application/{{applicationId}}/review",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"application",
+								"{{applicationId}}",
+								"review"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"APPROVED\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Approves the application (path uses {{applicationId}}). Capacity guard applies."
+				}
+			]
+		},
+		{
+			"name": "Step 6 · Tenant pays the deposit (money leaves Postman)",
+			"item": [
+				{
+					"name": "Pay Booking Deposit (choose gateway)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/application/{{applicationId}}/pay-deposit",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"application",
+								"{{applicationId}}",
+								"pay-deposit"
+							],
+							"query": []
+						},
+						"description": "gateway: bkash (default) | sslcommerz | stripe. Only VERIFIED tenants may pay. Returns { payment, paymentUrl } - the browser redirect for whichever gateway was chosen (bKash bkashURL / SSLCommerz GatewayPageURL / Stripe Checkout URL).",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n\t\"gateway\": \"bkash\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Tenant token. Creates a gateway session and returns a paymentUrl. OPEN THAT URL IN A BROWSER and complete the sandbox payment. Only after the gateway confirms does the lease get created. (bKash callback / SSLCommerz IPN / Stripe webhook run server-side - you never call them yourself.)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('tenantAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "My Payments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/payment/my-payments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"payment",
+								"my-payments"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Shows the deposit payment (PROCESSING until the browser payment completes, then PAID)."
+				}
+			]
+		},
+		{
+			"name": "Step 7 · Living (lease, invoices, maintenance) — needs the deposit paid",
+			"item": [
+				{
+					"name": "My Leases",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/lease/my-leases",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"lease",
+								"my-leases"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Only appears after the deposit payment settled. Captures leaseId.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('tenantAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const arr = Array.isArray(j && j.data) ? j.data : [];",
+									"if (arr.length && arr[0] && arr[0].id) {",
+									"  pm.collectionVariables.set('leaseId', arr[0].id);",
+									"  console.log('captured leaseId = ' + arr[0].id);",
+									"} else { console.warn('No leaseId found (empty list?).'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Payment Gateways (enabled)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/payment/gateways",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"payment",
+								"gateways"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Public: shows which gateways are configured (drives the payment buttons)."
+				},
+				{
+					"name": "My Notifications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/notification/my-notifications?limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"notification",
+								"my-notifications"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "You should have deposit-paid / lease notifications here."
+				},
+				{
+					"name": "Create Utility Bill (split among roommates)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/invoice/utility-bill",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"invoice",
+								"utility-bill"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"roomId\": \"{{roomId}}\",\n    \"amount\": 6000,\n    \"periodStart\": \"2026-09-01T00:00:00Z\",\n    \"periodEnd\": \"2026-09-30T00:00:00Z\",\n    \"dueDate\": \"2026-10-05T00:00:00Z\",\n    \"description\": \"Electricity + gas\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Owner posts a utility bill for the room (body uses {{roomId}}). Splits equally among ACTIVE roommates of that room's lease.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('ownerAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "My Invoices",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/invoice/my-invoices",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"invoice",
+								"my-invoices"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Tenant sees bills (utility just posted + any rent invoices from the cron). Captures the first UNPAID invoiceId.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('tenantAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const arr = Array.isArray(j && j.data) ? j.data : [];",
+									"const inv = arr.find((x) => x.status === 'UNPAID') || arr[0];",
+									"if (inv && inv.id) {",
+									"  pm.collectionVariables.set('invoiceId', inv.id);",
+									"  console.log('invoiceId = ' + inv.id + ' (status ' + (inv.status||'?') + ')');",
+									"} else { console.warn('No UNPAID invoice found.'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Pay Invoice (choose gateway)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/invoice/{{invoiceId}}/pay",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"invoice",
+								"{{invoiceId}}",
+								"pay"
+							],
+							"query": []
+						},
+						"description": "gateway: bkash (default) | sslcommerz | stripe. Response { payment, paymentUrl } per gateway; duplicate live sessions -> 409.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n\t\"gateway\": \"bkash\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Pays {{invoiceId}} - again open the returned paymentUrl in a browser."
+				},
+				{
+					"name": "My Payments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/payment/my-payments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"payment",
+								"my-payments"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Now shows the paid invoice too."
+				},
+				{
+					"name": "Create Maintenance Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/maintenance",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"maintenance"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"roomId\": \"{{roomId}}\",\n    \"category\": \"PLUMBING\",\n    \"priority\": \"HIGH\",\n    \"title\": \"Leaking shower head\",\n    \"description\": \"Drips constantly since yesterday.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Requires an ACTIVE lease. Captures maintenanceRequestId. If this fails with 403/409, the deposit wasn't completed in Step 6.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const j = pm.response.json();",
+									"const obj = (j && j.data && !Array.isArray(j.data)) ? j.data : (Array.isArray(j.data) ? j.data[0] : null);",
+									"if (obj && obj.id) {",
+									"  pm.collectionVariables.set('maintenanceRequestId', obj.id);",
+									"  pm.collectionVariables.set('requestId', obj.id);",
+									"  console.log('maintenanceRequestId = ' + obj.id);",
+									"} else { console.warn('No maintenance id in response.'); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Owner Maintenance Requests",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/maintenance/owner-requests?status=OPEN",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"maintenance",
+								"owner-requests"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "OPEN"
+								}
+							]
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Owner sees the new request.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('ownerAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Update Maintenance Status",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/maintenance/{{maintenanceRequestId}}/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"maintenance",
+								"{{maintenanceRequestId}}",
+								"status"
+							],
+							"query": []
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"RESOLVED\",\n    \"resolutionNotes\": \"Replaced the shower cartridge.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"description": "Owner resolves the request (path uses {{maintenanceRequestId}}).",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('ownerAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Step 8 · Roommates, Manager & Admin (governance)",
+			"item": [
+				{
+					"name": "Get Roommate Matches (cached)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/roommate/match",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"roommate",
+								"match"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Tenant-ranked roommate matches (Redis-cached 5 min).",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('tenantAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "My Managed Properties",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/manager/my-properties?page=1&limit=10",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"manager",
+								"my-properties"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "Properties the manager is assigned to (membership-based delegation scope)."
+					},
+					"response": [],
+					"description": "Manager sees only assigned properties. Prove the manager CANNOT call money routes (403 is correct).",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('managerAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Room Availability Board (manager view)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{managerAccessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/room/availability/{{propertyId}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"room",
+								"availability",
+								":propertyId"
+							]
+						},
+						"description": "Per-property vacancy board: summary (totalRooms, totalBeds, occupiedBeds, vacantBeds, occupancyRate, fullyVacantRooms, partiallyOccupiedRooms, fullRooms, maintenanceRooms, nextAvailableDate) + per-room rows with vacantBeds / availableNow / nextAvailableDate / upcomingReleaseDates. Counts and dates only (no tenant identities). OWNER (owns it), assigned PROPERTY_MANAGER, or ADMIN. Overwrite {{propertyId}} first (e.g. from My Properties)."
+					},
+					"response": [],
+					"description": "Assigned PROPERTY_MANAGER sees the same vacancy board for an assigned property (counts + release dates only, no tenant identities). {{propertyId}} points at the property created in Step 3; a manager assigned to the seed property sees the seed's board instead."
+				},
+				{
+					"name": "Dashboard Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/dashboard-stats",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"dashboard-stats"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Admin platform overview.",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('accessToken', pm.collectionVariables.get('adminAccessToken'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Audit Logs",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/audit-logs?action=APPLICATION_APPROVED",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"audit-logs"
+							],
+							"query": [
+								{
+									"key": "action",
+									"value": "APPLICATION_APPROVED"
+								}
+							]
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "The trail every approval/status/refund above produced."
+				},
+				{
+					"name": "Pending Tenant Verifications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/admin/tenant-verifications?searchTerm=&page=1&limit=10",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"tenant-verifications"
+							],
+							"query": [
+								{
+									"key": "searchTerm",
+									"value": ""
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "Admin queue for approving tenant identity (empty unless someone registered)."
+				},
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"health"
+							],
+							"query": []
+						},
+						"description": ""
+					},
+					"response": [],
+					"description": "End of the guided run. Everything above should have left audit + notification trails."
+				}
+			]
+		}
+	]
+}

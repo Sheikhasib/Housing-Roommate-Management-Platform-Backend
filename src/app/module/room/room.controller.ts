@@ -35,6 +35,23 @@ const getMyRooms = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+// Property vacancy + upcoming-release board (OWNER / MANAGER / ADMIN)
+const getPropertyAvailability = catchAsync(
+	async (req: Request, res: Response) => {
+		const propertyId = req.params.propertyId as string;
+		const user = req.user!;
+
+		const result = await RoomServices.getPropertyAvailability(propertyId, user);
+
+		sendResponse(res, {
+			statusCode: httpStatus.OK,
+			success: true,
+			message: "Room availability fetched successfully",
+			data: result,
+		});
+	},
+);
+
 // Public room search (no auth)
 const getPublicRooms = catchAsync(async (req: Request, res: Response) => {
 	const result = await RoomServices.getPublicRooms(req.query);
@@ -156,6 +173,7 @@ const removeRoomImage = catchAsync(async (req: Request, res: Response) => {
 export const RoomController = {
 	createRoom,
 	getMyRooms,
+	getPropertyAvailability,
 	getPublicRooms,
 	getRoomDetail,
 	updateRoom,

@@ -132,15 +132,16 @@ flowchart LR
 ## 📁 Project Structure
 
 ```
-api/
-  index.ts          # Vercel serverless entry (exports the Express app)
+tsup.config.ts      # bundles the serverless entry into one file (dist/vercel.js)
 vercel.json         # Vercel builds/routes + daily cron trigger
+vercel.env.example  # production env template (import via Vercel "Add from .env")
 prisma/
   schema/            # one .prisma file per domain (enums, user, property, room, ...)
   migrations/        # versioned SQL migrations
 src/
   app.ts             # express bootstrap; Stripe webhook mounted BEFORE JSON parsers
   server.ts          # boot: DB → Redis (fail-soft) → SMTP → seeds → cron → listen
+  vercel.ts          # Vercel serverless entry (exports the app; bundled by tsup)
   app/
     config/          # centralised, typed env config
     interfaces/      # shared IQuery (searchTerm / page / limit / sort)
@@ -256,7 +257,7 @@ nothing is missed after downtime.
 | ------- | ------- |
 | `npm run dev` | Run with hot reload (`tsx watch src/server.ts`) |
 | `npm start` | Production boot (`tsx src/server.ts`) |
-| `npm run build` | Type-check + emit `dist` via `tsc` |
+| `npm run build` | Type-check (`tsc`) + bundle the serverless entry (`tsup` → `dist/vercel.js`) |
 | `npm run prisma:generate` | Regenerate the Prisma client |
 | `npm run prisma:migrate` | Run `prisma migrate dev` |
 | `npm run prisma:migrate:deploy` | Apply migrations non-interactively (prod) |
@@ -603,12 +604,12 @@ search/detail, and the three payment notify routes above.
 ## ☁️ Deployment
 
 This repo is set up to deploy on **Vercel** as a serverless API. Vercel runs the
-Express app from `api/index.ts` (no always-on server), which means a few boot-time
-behaviours move elsewhere:
+bundled serverless entry (`src/vercel.ts` → `dist/vercel.js` via tsup; no
+always-on server), which means a few boot-time behaviours move elsewhere:
 
 | Local / always-on host (`npm run dev`) | Vercel (serverless) |
 | -------------------------------------- | ------------------- |
-| `server.ts` boots: seeds + `node-cron` + `app.listen` | `api/index.ts` exports the app; no `listen` |
+| `server.ts` boots: seeds + `node-cron` + `app.listen` | `src/vercel.ts` exports the app; no `listen` |
 | Background jobs scheduled in-process (4× daily) | One Vercel Cron hits `GET /api/cron/daily` |
 | Seeds run automatically on boot | Run once with `npm run seed` (see below) |
 | `localhost` Postgres/Redis | Hosted **Postgres** (Neon) + **Redis** (Upstash) |
@@ -618,17 +619,23 @@ behaviours move elsewhere:
 1. **Host Postgres and Redis** — create a Neon (Postgres) and Upstash (Redis)
    instance; grab both connection strings.
 2. **Push the repo to GitHub** and **Import** it in Vercel (Framework Preset:
-   *Other*; Node.js ≥ 20). `vercel.json` wires `api/index.ts` as the single
-   function and registers the daily cron — no build command needed, `npm install`
-   (and its `prisma generate` postinstall) runs automatically.
+   *Other*; Node.js ≥ 20). Make sure the project **Build Command** is
+   `npm run build` (the default for *Other*): `npm install` regenerates the
+   Prisma client (postinstall), then `tsc && tsup` bundles `src/vercel.ts`
+   into the single-file `dist/vercel.js`. `vercel.json` serves that file and
+   registers the daily cron.
 3. **Set environment variables** in Vercel → Project → Settings → Environment
    (every `.env.example` key), with production values:
    - `DATABASE_URL` = hosted Postgres; `REDIS_*` = Upstash.
-   - `BACKEND_URL`, `BACKEND_PUBLIC_URL` = `https://<your-project>.vercel.app`.
-   - `BKASH_CALLBACK_URL` = `https://<your-project>.vercel.app/api/v1`.
+   - `BACKEND_URL`, `BACKEND_PUBLIC_URL` = `https://housing-roommate-management-platform-backend.vercel.app`.
+   - `BKASH_CALLBACK_URL` = `https://housing-roommate-management-platform-backend.vercel.app/api/v1`.
    - `FRONTEND_URL` = the real frontend domain.
    - `CRON_SECRET` = a strong random value (Vercel Cron authenticates with it).
    - `SUPER_ADMIN_*` / `TESTER_*` = the demo credentials (defaults in `.env.example`).
+
+   > Tip: import the ready-made **`vercel.env.example`** (repo root) via
+   > Project → Settings → Environment → **Add from .env**, then only replace the
+   > secret placeholders.
 4. **Apply migrations + seed the hosted DB once** (from your machine, pointing at
    the hosted `DATABASE_URL`):
 
@@ -637,12 +644,12 @@ behaviours move elsewhere:
    npm run seed
    ```
 
-5. **Deploy.** Open `https://<your-project>.vercel.app/` and
+5. **Deploy.** Open `https://housing-roommate-management-platform-backend.vercel.app/` and
    `/api/v1/health` to confirm.
 6. **Provider URLs** — make sure the gateway dashboards point at Vercel:
-   - bKash: callback base = `https://<your-project>.vercel.app/api/v1`.
+   - bKash: callback base = `https://housing-roommate-management-platform-backend.vercel.app/api/v1`.
    - SSLCommerz: success/fail/cancel/IPN → `/api/v1/payment/confirm` + `/api/v1/payment/ipn`.
-   - Stripe: register webhook `https://<your-project>.vercel.app/api/v1/payment/webhook/stripe`
+   - Stripe: register webhook `https://housing-roommate-management-platform-backend.vercel.app/api/v1/payment/webhook/stripe`
      for `checkout.session.completed` + `checkout.session.expired`.
 
 > **Serverless notes** — functions are stateless and short-lived: cron is driven
@@ -658,6 +665,18 @@ behaviours move elsewhere:
 Import **`Housing-Roommate-API.postman_collection.json`** (repo root) for a fully documented,
 runnable collection with examples for every role — including multi-gateway payment sessions,
 refund/settlement queues and the provider notify routes.
+
+New to the flow? Read **`docs/WALKTHROUGH.md`** — a start-to-finish, ordered guide covering
+every feature (browse → apply → approve → pay → lease → bills → admin) with the exact request
+order, role tokens and troubleshooting.
+
+For a **one-click guided run**, import **`Housing-Roommate-Walkthrough.postman_collection.json`**
+instead: 36 requests in Step 0–8 order that auto-swap role tokens and capture ids (`roomId`,
+`propertyId`, `applicationId`, `leaseId`, `invoiceId`, …) as you go — set only `base_url`.
+
+> **Note:** `base_url` must be the host only (e.g. `http://localhost:5000`). Do **not** include
+> `/api/v1` — every request path in the collections already contains it, so adding it to
+> `base_url` produces `404 Route not found` on every request.
 
 ---
 

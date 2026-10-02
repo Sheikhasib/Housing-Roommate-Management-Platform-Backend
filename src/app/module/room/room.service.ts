@@ -12,15 +12,52 @@ import {
 	uploadFileToCloudinary,
 } from "../../utils/cloudinaryUpload";
 import { getVerifiedOwnerProfile } from "../../utils/ownerGuard";
-import { propertyManagerScope } from "../../utils/propertyAccess";
+import {
+	propertyManagerScope,
+	resolvePropertyRole,
+} from "../../utils/propertyAccess";
 import { recalculateRoomStatus } from "../../utils/roomStatus";
 import type {
 	ICreateRoomPayload,
+	IPropertyAvailabilityResponse,
+	IRoomAvailability,
+	IRoomAvailabilityRoom,
 	ISetRoomAvailabilityPayload,
 	IUpdateRoomPayload,
 } from "./room.interface";
 
 type TImage = { url: string; publicId: string };
+
+// On-the-fly vacancy math shared by every read surface. All inputs are live
+// rows (bedCount/occupiedBeds are maintained transactionally by the settle /
+// termination / finalize-cron paths via recalculateRoomStatus).
+const computeAvailability = (
+	room: { bedCount: number; occupiedBeds: number; status: RoomStatus },
+	activeLeaseEndDates: Date[],
+): IRoomAvailability => {
+	const vacantBeds = Math.max(room.bedCount - room.occupiedBeds, 0);
+	const availableNow = vacantBeds > 0 && room.status !== RoomStatus.MAINTENANCE;
+
+	// release dates are dates only (never tenant identities); a lease whose
+	// endDate already passed but whose bed is not yet freed (the finalize cron
+	// runs 00:15) is clamped to "now" so we never advertise a past date
+	const now = new Date();
+	const upcomingReleaseDates = activeLeaseEndDates
+		.map((endDate) => (endDate > now ? endDate : now))
+		.sort((a, b) => a.getTime() - b.getTime())
+		.map((endDate) => endDate.toISOString());
+
+	const nextAvailableDate = availableNow
+		? null
+		: (upcomingReleaseDates[0] ?? null);
+
+	return {
+		vacantBeds,
+		availableNow,
+		nextAvailableDate,
+		upcomingReleaseDates,
+	};
+};
 
 // Resolve a property and ensure it belongs to the logged-in owner.
 const getOwnedPropertyOrThrow = async (
@@ -157,15 +194,138 @@ const getMyRooms = async (user: RequestUser, query: IQuery) => {
 		orderBy: { [sortBy]: sortOrder },
 		include: {
 			property: { select: { id: true, title: true, city: true, images: true } },
+			leases: {
+				where: { status: LeaseStatus.ACTIVE, isDeleted: false },
+				select: { endDate: true },
+			},
 			_count: { select: { applications: true, leases: true } },
 		},
 	});
 
 	const total = await prisma.room.count({ where: { AND: andConditions } });
 
+	const data = rooms.map((room) => {
+		const { leases, ...roomRest } = room;
+
+		return {
+			...roomRest,
+			availableBeds: Math.max(room.bedCount - room.occupiedBeds, 0),
+			...computeAvailability(
+				room,
+				leases.map((lease) => lease.endDate),
+			),
+		};
+	});
+
 	return {
-		data: rooms,
+		data,
 		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+	};
+};
+
+// Vacancy + upcoming-release board for one property (owner / assigned
+// manager / admin). Counts and dates only — never tenant identities, so the
+// manager boundary (no PII, no money) is respected by construction.
+const getPropertyAvailability = async (
+	propertyId: string,
+	user: RequestUser,
+): Promise<IPropertyAvailabilityResponse> => {
+	const property = await prisma.property.findUnique({
+		where: { id: propertyId },
+		select: {
+			id: true,
+			title: true,
+			city: true,
+			isDeleted: true,
+			owner: { select: { userId: true } },
+		},
+	});
+
+	if (!property || property.isDeleted) {
+		throw new AppError(httpStatus.NOT_FOUND, "Property not found");
+	}
+
+	if (user.role === Role.OWNER) {
+		// verified-owner guard (APPROVED profile required), 404 on any miss
+		await getVerifiedOwnerProfile(user.userId);
+
+		if (property.owner.userId !== user.userId) {
+			throw new AppError(httpStatus.NOT_FOUND, "Property not found");
+		}
+	} else if (user.role === Role.PROPERTY_MANAGER) {
+		const propertyRole = await resolvePropertyRole(user, propertyId);
+
+		if (!propertyRole) {
+			throw new AppError(
+				httpStatus.FORBIDDEN,
+				"You are not allowed to view this property's availability",
+			);
+		}
+	}
+
+	const rooms = await prisma.room.findMany({
+		where: { propertyId, isDeleted: false },
+		select: {
+			id: true,
+			name: true,
+			status: true,
+			isPublished: true,
+			bedCount: true,
+			occupiedBeds: true,
+			leases: {
+				where: { status: LeaseStatus.ACTIVE, isDeleted: false },
+				select: { endDate: true },
+			},
+		},
+		orderBy: { createdAt: "asc" },
+	});
+
+	const decorated: IRoomAvailabilityRoom[] = rooms.map((room) => ({
+		id: room.id,
+		name: room.name,
+		status: room.status,
+		isPublished: room.isPublished,
+		bedCount: room.bedCount,
+		occupiedBeds: room.occupiedBeds,
+		...computeAvailability(
+			room,
+			room.leases.map((lease) => lease.endDate),
+		),
+	}));
+
+	const totalBeds = rooms.reduce((sum, room) => sum + room.bedCount, 0);
+	const occupiedBeds = rooms.reduce((sum, room) => sum + room.occupiedBeds, 0);
+	const vacantBeds = Math.max(totalBeds - occupiedBeds, 0);
+
+	const notMaintenance = decorated.filter(
+		(room) => room.status !== RoomStatus.MAINTENANCE,
+	);
+
+	const summary = {
+		totalRooms: rooms.length,
+		totalBeds,
+		occupiedBeds,
+		vacantBeds,
+		occupancyRate: totalBeds ? Math.round((occupiedBeds / totalBeds) * 100) : 0,
+		fullyVacantRooms: notMaintenance.filter((room) => room.occupiedBeds === 0)
+			.length,
+		partiallyOccupiedRooms: notMaintenance.filter(
+			(room) => room.vacantBeds > 0 && room.occupiedBeds > 0,
+		).length,
+		fullRooms: notMaintenance.filter((room) => room.vacantBeds === 0).length,
+		maintenanceRooms: decorated.length - notMaintenance.length,
+		// earliest upcoming release across rooms with zero vacant beds
+		nextAvailableDate:
+			decorated
+				.filter((room) => !room.availableNow && room.nextAvailableDate)
+				.map((room) => room.nextAvailableDate as string)
+				.sort()[0] ?? null,
+	};
+
+	return {
+		property: { id: property.id, title: property.title, city: property.city },
+		summary,
+		rooms: decorated,
 	};
 };
 
@@ -185,8 +345,25 @@ const getPublicRooms = async (query: IQuery) => {
 			// rooms of a soft-deleted property must not surface publicly
 			property: { isDeleted: false },
 		},
-		{ status: { notIn: [RoomStatus.OCCUPIED, RoomStatus.MAINTENANCE] } },
 	];
+
+	// availability mode (default keeps the historical behaviour: only rooms
+	// with a free bed today). "upcoming" surfaces full-but-published rooms
+	// that have a bed freeing up; "all" shows everything except maintenance.
+	const availabilityMode = query.availability as string | undefined;
+
+	if (availabilityMode === "upcoming") {
+		andConditions.push({
+			status: RoomStatus.OCCUPIED,
+			leases: { some: { status: LeaseStatus.ACTIVE, isDeleted: false } },
+		});
+	} else if (availabilityMode === "all") {
+		andConditions.push({ status: { notIn: [RoomStatus.MAINTENANCE] } });
+	} else {
+		andConditions.push({
+			status: { notIn: [RoomStatus.OCCUPIED, RoomStatus.MAINTENANCE] },
+		});
+	}
 
 	// Searching
 	if (query.searchTerm) {
@@ -263,6 +440,11 @@ const getPublicRooms = async (query: IQuery) => {
 			images: true,
 			availableFrom: true,
 			createdAt: true,
+			status: true,
+			leases: {
+				where: { status: LeaseStatus.ACTIVE, isDeleted: false },
+				select: { endDate: true },
+			},
 			property: {
 				select: {
 					id: true,
@@ -284,14 +466,30 @@ const getPublicRooms = async (query: IQuery) => {
 		},
 	});
 
-	// decorate each room with its currently available bed count
-	const data = rooms.map((room) => ({
-		...room,
-		availableBeds: Math.max(room.bedCount - room.occupiedBeds, 0),
-		// serialise decimals for a clean JSON payload
-		monthlyRent: room.monthlyRent.toString(),
-		bookingDeposit: room.bookingDeposit.toString(),
-	}));
+	// decorate each room with its currently available bed count + upcoming
+	// release info (dates only)
+	const data = rooms
+		.map((room) => {
+			const { leases, ...roomRest } = room;
+
+			return {
+				...roomRest,
+				availableBeds: Math.max(room.bedCount - room.occupiedBeds, 0),
+				...computeAvailability(
+					room,
+					leases.map((lease) => lease.endDate),
+				),
+				// serialise decimals for a clean JSON payload
+				monthlyRent: room.monthlyRent.toString(),
+				bookingDeposit: room.bookingDeposit.toString(),
+			};
+		})
+		// "upcoming" guard: drop any drift row whose occupancy counters say
+		// full but has no live lease end date to advertise
+		.filter(
+			(room) =>
+				availabilityMode !== "upcoming" || room.nextAvailableDate !== null,
+		);
 
 	const total = await prisma.room.count({
 		where: { AND: andConditions },
@@ -313,7 +511,6 @@ const getPublicRooms = async (query: IQuery) => {
 
 	return result;
 };
-
 // Single room detail - guests see only published rooms; owner/admin see all
 const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 	const room = await prisma.room.findUnique({
@@ -325,12 +522,22 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 				},
 			},
 			unit: true,
+			leases: {
+				where: { status: LeaseStatus.ACTIVE, isDeleted: false },
+				select: { endDate: true },
+			},
 		},
 	});
 
 	if (!room || room.isDeleted) {
 		throw new AppError(httpStatus.NOT_FOUND, "Room not found");
 	}
+
+	// public vacancy decoration (dates only — no tenant identities)
+	const availability = computeAvailability(
+		room,
+		room.leases.map((lease) => lease.endDate),
+	);
 
 	// guest / tenant: only published rooms inside a live property are visible,
 	// and the owner's private fields must never be returned
@@ -339,9 +546,13 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 			throw new AppError(httpStatus.NOT_FOUND, "Room not found");
 		}
 
+		// strip the release dates (and any future nested relation) from the
+		// property shape; room-level availability data is added below
 		const { owner, ...propertyRest } = room.property;
+		const { leases, ...roomRest } = room;
+
 		return {
-			...room,
+			...roomRest,
 			property: {
 				...propertyRest,
 				owner: owner
@@ -355,6 +566,8 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 						}
 					: null,
 			},
+			availableBeds: Math.max(room.bedCount - room.occupiedBeds, 0),
+			...availability,
 		};
 	}
 
@@ -373,7 +586,11 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 			);
 		}
 
-		return room;
+		return {
+			...room,
+			availableBeds: Math.max(room.bedCount - room.occupiedBeds, 0),
+			...availability,
+		};
 	}
 
 	if (viewer.role === "OWNER" && room.property.owner.userId !== viewer.userId) {
@@ -383,7 +600,11 @@ const getRoomDetail = async (roomId: string, viewer?: RequestUser) => {
 		);
 	}
 
-	return room;
+	return {
+		...room,
+		availableBeds: Math.max(room.bedCount - room.occupiedBeds, 0),
+		...availability,
+	};
 };
 
 // Owner or assigned manager updates room details (OPERATE tier)
@@ -597,6 +818,7 @@ const removeRoomImage = async (
 export const RoomServices = {
 	createRoom,
 	getMyRooms,
+	getPropertyAvailability,
 	getPublicRooms,
 	getRoomDetail,
 	updateRoom,

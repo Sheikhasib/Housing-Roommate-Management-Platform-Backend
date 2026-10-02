@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "3f2b3f0e-6f2a-4b3e-9b3a-abc123def456",
 		"name": "Housing & Roommate Management Platform API",
-		"description": "REST API collection for the Housing & Roommate Management Platform.\nRoles: TENANT / OWNER / ADMIN (+ SUPER_ADMIN).\nDemo login: admin@housing.com / Admin@1234, owner@housing.com / Owner@1234, tenant@housing.com / Tenant@1234.",
+		"description": "REST API collection for the Housing & Roommate Management Platform.\nRoles: TENANT / OWNER / ADMIN (+ SUPER_ADMIN).\nDemo login: admin@housing.com / Admin@1234, owner@housing.com / Owner@1234, tenant@housing.com / Tenant@1234.\n\nIMPORTANT: set base_url to the host only (e.g. http://localhost:5000). Do NOT include /api/v1 — every request path already contains it.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -1491,6 +1491,39 @@
 					}
 				},
 				{
+					"name": "Property Availability Board (vacancy + upcoming)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/v1/room/availability/{{propertyId}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"room",
+								"availability",
+								":propertyId"
+							]
+						},
+						"description": "Per-property vacancy board: summary (totalRooms, totalBeds, occupiedBeds, vacantBeds, occupancyRate, fullyVacantRooms, partiallyOccupiedRooms, fullRooms, maintenanceRooms, nextAvailableDate) + per-room rows with vacantBeds / availableNow / nextAvailableDate / upcomingReleaseDates. Counts and dates only (no tenant identities). OWNER (owns it), assigned PROPERTY_MANAGER, or ADMIN. Overwrite {{propertyId}} first (e.g. from My Properties)."
+					},
+					"response": []
+				},
+				{
 					"name": "Public Rooms (search/cache)",
 					"request": {
 						"method": "GET",
@@ -1510,11 +1543,40 @@
 								"api",
 								"v1",
 								"room",
-								"public?page=1&limit=10&city=Dhaka&maxRent=20000&type=SHARED_ROOM"
+								"public"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "city",
+									"value": "Dhaka"
+								},
+								{
+									"key": "maxRent",
+									"value": "20000"
+								},
+								{
+									"key": "type",
+									"value": "SHARED_ROOM"
+								},
+								{
+									"key": "availability",
+									"value": "upcoming",
+									"description": "available (default) | upcoming (full rooms with a release date) | all (except MAINTENANCE)",
+									"disabled": true
+								}
 							]
 						},
 						"description": ""
-					}
+					},
+					"description": "Published rooms with a free bed (default). `availability` filter: `available` (default — rooms with a free bed now), `upcoming` (full-but-published rooms with a bed freeing up, nextAvailableDate set; never a past date), `all` (everything except MAINTENANCE). Every row is decorated with availableBeds, vacantBeds, availableNow, nextAvailableDate (null when available now) and upcomingReleaseDates. Cached in Redis for 60s."
 				},
 				{
 					"name": "Room Detail",
