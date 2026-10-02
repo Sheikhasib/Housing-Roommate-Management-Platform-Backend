@@ -1,11 +1,9 @@
 import httpStatus from "http-status";
-import {
-	PaymentGateway,
-	PaymentPurpose,
-} from "../../../../generated/prisma/enums";
+import { PaymentGateway } from "../../../../generated/prisma/enums";
 import config from "../../../config";
 import { AppError } from "../../../utils/AppError";
 import { getStripe } from "../../stripe";
+import { frontendPaymentRedirect } from "../redirect";
 import { ProviderAmbiguousError } from "../types";
 import type {
 	InitiateInput,
@@ -102,12 +100,6 @@ export const stripeAdapter: PaymentGatewayAdapter = {
 		);
 		const unitAmount = Math.max(baseAmount, 1) * 100;
 
-		// the payer lands back on the dashboard page matching the subject
-		const dashboardPath =
-			input.purpose === PaymentPurpose.DEPOSIT
-				? "my-applications"
-				: "my-invoices";
-
 		try {
 			const session = await getStripe().checkout.sessions.create({
 				mode: "payment",
@@ -125,8 +117,17 @@ export const stripeAdapter: PaymentGatewayAdapter = {
 					},
 				],
 				customer_email: input.payerEmail,
-				success_url: `${config.frontend_url}/dashboard/${dashboardPath}?status=success`,
-				cancel_url: `${config.frontend_url}/dashboard/${dashboardPath}?status=cancel`,
+				success_url: frontendPaymentRedirect({
+					outcome: "success",
+					purpose: input.purpose,
+					ref: input.merchantInvoiceNumber,
+				}),
+				cancel_url: frontendPaymentRedirect({
+					outcome: "cancel",
+					purpose: input.purpose,
+					ref: input.merchantInvoiceNumber,
+					reason: "cancel",
+				}),
 				metadata: {
 					paymentId: input.merchantInvoiceNumber,
 					purpose: input.purpose,
