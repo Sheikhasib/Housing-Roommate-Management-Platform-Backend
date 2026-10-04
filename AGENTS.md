@@ -27,6 +27,7 @@ npm run format:check   # Biome format ./src      (fix: npm run format:fix)
 - Shared helpers: `src/app/utils/` (`AppError`, `catchAsync`, `sendResponse`, `jwt`, `writeAuditLog`, `createNotification`, `sendTemplateEmail`, `getVerifiedOwnerProfile`, `recalculateRoomStatus`, `uploadFileToCloudinary`, `propertyAccess`), `src/app/lib/` (`prisma`, `redis`, `bKash`, `cloudinary`, `multer`, `rateLimiter`, `nodemailer`, `cron`, `googleAuth`).
 - Roles: SUPER_ADMIN, ADMIN, OWNER, PROPERTY_MANAGER, TENANT. All route guards/imports use enums from `../../../generated/prisma/enums`.
 - Property delegation (spec 17): assigned PROPERTY_MANAGERs act as an owner's OPERATE-tier delegate via `utils/propertyAccess.ts` (`resolvePropertyRole`, `propertyManagerScope`). Managers never touch money (no refunds/lease termination/payment visibility), never create/delete property/rooms, never assign managers.
+- Public contact form (spec 18): `POST /api/v1/contact` is unauthenticated, IP-rate-limited (5 / 15 min, `contactRateLimiter`), stores `ContactMessage` and emails `CONTACT_NOTIFY_EMAIL` (falls back to `SUPER_ADMIN_EMAIL`) best-effort with all user text HTML-escaped; no read endpoint for messages exists.
 
 ## Code style (Biome — non-negotiable)
 

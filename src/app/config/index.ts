@@ -58,4 +58,5 @@ export default {
 	backend_public_url:
 		process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL!,
 	cron_secret: process.env.CRON_SECRET,
+	contact_notify_email: process.env.CONTACT_NOTIFY_EMAIL,
 };

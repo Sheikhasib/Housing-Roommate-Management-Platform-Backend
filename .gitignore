@@ -20,3 +20,5 @@ pnpm-workspace.yaml
 
 .vercel
 dev-server.log
+scripts/seed-images/
+scripts/seed-demo-data.log.json

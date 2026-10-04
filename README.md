@@ -181,8 +181,8 @@ src/
 
 `User`, `TenantProfile`, `OwnerProfile`, `ManagerProfile`, `Property`, `Unit`, `Room`,
 `ViewingRequest`, `RoommateRequest`, `RoommatePair`, `Application`, `Lease`, `LeaseDocument`,
-`Invoice`, `Payment`, `RoommateMembership`, `MaintenanceRequest`, `Notification`, `AuditLog`,
-plus shared enums.
+`Invoice`, `Payment`, `RoommateMembership`, `MaintenanceRequest`, `Notification`,
+`ContactMessage`, `AuditLog`, plus shared enums.
 
 ### Core domain relationships
 
@@ -590,6 +590,9 @@ GET    /admin/tenant-verifications PATCH /admin/tenant-verifications/:tenantProf
 # Analytics (per role)
 GET    /analytics/tenant-analytics   GET /analytics/owner-analytics   GET /analytics/manager-analytics
 
+# Contact (public Contact page)
+POST   /contact                       # public — rate limited to 5 / 15 min per IP
+
 # Meta
 GET    /                          # welcome + API banner
 GET    /api/v1/health             # health check
@@ -597,7 +600,7 @@ GET    /api/cron/daily            # Vercel Cron trigger — runs all daily jobs 
 ```
 
 Public endpoints (no auth): auth register/login/google/password flows, room & property public
-search/detail, and the three payment notify routes above.
+search/detail, the contact-form submission, and the three payment notify routes above.
 
 ---
 

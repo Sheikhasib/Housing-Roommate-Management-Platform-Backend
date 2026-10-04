@@ -30,6 +30,7 @@ import { ManagerRoutes } from "./app/module/manager/manager.route";
 import { AdminRoutes } from "./app/module/admin/admin.route";
 import { AnalyticsRoutes } from "./app/module/analytics/analytics.route";
 import { CronRoutes } from "./app/module/cron/cron.route";
+import { ContactRoutes } from "./app/module/contact/contact.route";
 
 const app: Application = express();
 
@@ -134,6 +135,9 @@ app.use("/api/v1/maintenance", MaintenanceRoutes);
 
 // Notification routes
 app.use("/api/v1/notification", NotificationRoutes);
+
+// Contact routes (public contact form - no auth)
+app.use("/api/v1/contact", ContactRoutes);
 
 // Manager routes (delegated property operators)
 app.use("/api/v1/manager", ManagerRoutes);

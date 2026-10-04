@@ -1,0 +1,20 @@
+// ContactMessage = a message submitted through the public Contact page
+// (spec 18). The sender is anonymous, so there is no user relation: the row is
+// an inbox for the platform team and is never exposed back to the public.
+
+model ContactMessage {
+  id String @id @default(uuid())
+
+  name    String
+  email   String
+  subject String?
+  message String
+
+  isRead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([isRead], name: "idx_contact_message_is_read")
+  @@index([createdAt], name: "idx_contact_message_created_at")
+  @@map("contact_messages")
+}
