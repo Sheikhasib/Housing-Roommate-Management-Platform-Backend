@@ -12,6 +12,7 @@ import type { IQuery } from "../../interfaces";
 import type { PaymentWhereInput } from "../../../generated/prisma/models";
 import { prisma } from "../../lib/prisma";
 import { getStripe } from "../../lib/stripe";
+import { frontendPaymentRedirectFor } from "../../lib/payments/redirect";
 import { getAdapter, listEnabledGateways } from "../../lib/payments/registry";
 import {
 	markCancelled,
@@ -197,9 +198,7 @@ const paymentCallback = async (query: Record<string, any>) => {
 	const isDeposit = payment.purpose === PaymentPurpose.DEPOSIT;
 
 	if (isSuccess) {
-		const successRedirect = isDeposit
-			? `${config.frontend_url}/dashboard/my-applications?status=success`
-			: `${config.frontend_url}/dashboard/my-invoices?status=success`;
+		const successRedirect = frontendPaymentRedirectFor(payment, "success");
 
 		// replayed redirect for an already-settled payment: nothing to query
 		// or settle (I-G3 no-op)
@@ -219,7 +218,7 @@ const paymentCallback = async (query: Record<string, any>) => {
 			await markFailed(payment.id, verification.executedResult);
 
 			return {
-				redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=failure`,
+				redirectUrl: frontendPaymentRedirectFor(payment, "cancel", "failure"),
 			};
 		}
 
@@ -234,7 +233,7 @@ const paymentCallback = async (query: Record<string, any>) => {
 		// snapshot - held PROCESSING for admin review, never auto-settled
 		if (settleResult.outcome === "AMOUNT_MISMATCH") {
 			return {
-				redirectUrl: `${config.frontend_url}?payment=error`,
+				redirectUrl: frontendPaymentRedirectFor(payment, "cancel", "error"),
 			};
 		}
 
@@ -264,13 +263,17 @@ const paymentCallback = async (query: Record<string, any>) => {
 		}
 
 		return {
-			redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=${status}`,
+			redirectUrl: frontendPaymentRedirectFor(
+				payment,
+				"cancel",
+				status === "failure" ? "failure" : "cancel",
+			),
 		};
 	}
 
 	// unknown bKash status
 	return {
-		redirectUrl: `${config.frontend_url}?payment=error`,
+		redirectUrl: frontendPaymentRedirectFor(payment, "cancel", "error"),
 	};
 };
 
@@ -312,9 +315,7 @@ const confirmSslcommerzPayment = async (
 	}
 
 	const isDeposit = payment.purpose === PaymentPurpose.DEPOSIT;
-	const successRedirect = isDeposit
-		? `${config.frontend_url}/dashboard/my-applications?status=success`
-		: `${config.frontend_url}/dashboard/my-invoices?status=success`;
+	const successRedirect = frontendPaymentRedirectFor(payment, "success");
 
 	// idempotent: an already-settled payment is a no-op (SSLCommerz can call
 	// more than once)
@@ -338,7 +339,11 @@ const confirmSslcommerzPayment = async (
 		return {
 			paymentStatus:
 				status === "fail" ? PaymentStatus.FAILED : PaymentStatus.CANCELLED,
-			redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=${status}`,
+			redirectUrl: frontendPaymentRedirectFor(
+				payment,
+				"cancel",
+				status === "fail" ? "failure" : "cancel",
+			),
 			alreadyProcessed: false,
 		};
 	}
@@ -354,7 +359,7 @@ const confirmSslcommerzPayment = async (
 
 		return {
 			paymentStatus: PaymentStatus.FAILED,
-			redirectUrl: `${config.frontend_url}/dashboard/my-invoices?status=failure`,
+			redirectUrl: frontendPaymentRedirectFor(payment, "cancel", "failure"),
 			alreadyProcessed: false,
 		};
 	}
@@ -371,7 +376,7 @@ const confirmSslcommerzPayment = async (
 	if (settleResult.outcome === "AMOUNT_MISMATCH") {
 		return {
 			paymentStatus: PaymentStatus.PROCESSING,
-			redirectUrl: `${config.frontend_url}?payment=error`,
+			redirectUrl: frontendPaymentRedirectFor(payment, "cancel", "error"),
 			alreadyProcessed: false,
 		};
 	}
