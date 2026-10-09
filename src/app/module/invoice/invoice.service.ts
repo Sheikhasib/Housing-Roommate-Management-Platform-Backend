@@ -298,7 +298,7 @@ const createUtilityBill = async (
 
 		await sendTemplateEmail({
 			to: invoice.tenantEmail,
-			subject: "New Utility Bill - Housing & Roommate",
+			subject: "New Utility Bill - Neer",
 			template: "invoice-created",
 			data: {
 				name: invoice.tenantName,

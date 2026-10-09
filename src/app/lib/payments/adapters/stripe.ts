@@ -110,7 +110,7 @@ export const stripeAdapter: PaymentGatewayAdapter = {
 							currency: config.stripe_currency,
 							unit_amount: unitAmount,
 							product_data: {
-								name: "Housing & Roommate",
+								name: "Neer",
 								description: input.description.slice(0, 200),
 							},
 						},

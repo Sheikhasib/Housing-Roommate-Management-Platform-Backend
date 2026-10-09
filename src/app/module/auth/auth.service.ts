@@ -118,7 +118,7 @@ const registerUser = async (payload: IRegisterPayload) => {
 	// Render the OTP template and send it via email
 	await sendTemplateEmail({
 		to: email,
-		subject: "Email Verification OTP - Housing & Roommate",
+		subject: "Email Verification OTP - Neer",
 		template: "registration-otp",
 		data: {
 			name,
@@ -278,7 +278,7 @@ const verifyUserEmail = async (payload: IVerifyEmailPayload) => {
 	// welcome email
 	await sendTemplateEmail({
 		to: user.email,
-		subject: `Welcome to Housing & Roommate, ${user.name}!`,
+		subject: `Welcome to Neer, ${user.name}!`,
 		template: "welcome",
 		data: { name: user.name },
 	});
@@ -499,7 +499,7 @@ const googleLogin = async (payload: IGoogleLoginPayload) => {
 
 			await sendTemplateEmail({
 				to: user.email,
-				subject: `Welcome to Housing & Roommate, ${user.name}!`,
+				subject: `Welcome to Neer, ${user.name}!`,
 				template: "welcome",
 				data: { name: user.name },
 			});
@@ -567,7 +567,7 @@ const forgotPassword = async (payload: IForgotPasswordPayload) => {
 
 	await sendTemplateEmail({
 		to: isUserExists.email,
-		subject: "Forgot Password Reset OTP - Housing & Roommate",
+		subject: "Forgot Password Reset OTP - Neer",
 		template: "forgot-password",
 		data: {
 			otp,
@@ -639,7 +639,7 @@ const resetPassword = async (payload: IResetPasswordPayload) => {
 
 	await sendTemplateEmail({
 		to: isUserExists.email,
-		subject: "Password Reset Successful - Housing & Roommate",
+		subject: "Password Reset Successful - Neer",
 		template: "reset-password-success",
 		data: { name: isUserExists.name },
 	});

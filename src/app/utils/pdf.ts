@@ -114,7 +114,7 @@ export const buildReceiptPdf = async (
 		margin: 0,
 		info: {
 			Title: `${payload.documentLabel} receipt`,
-			Creator: "Housing & Roommate Management Platform",
+			Creator: "Neer",
 		},
 	});
 
@@ -169,7 +169,7 @@ export const buildReceiptPdf = async (
 	pdfDocument.roundedRect(CONTENT_MARGIN, 38, 36, 36, 9).fill("#FFFFFF");
 	pdfDocument.restore();
 
-	writeText("H", CONTENT_MARGIN, 45, {
+	writeText("N", CONTENT_MARGIN, 45, {
 		font: "Helvetica-Bold",
 		size: 19,
 		color: COLORS.brand,
@@ -177,13 +177,13 @@ export const buildReceiptPdf = async (
 		align: "center",
 	});
 
-	writeText("Housing & Roommate", 96, 42, {
+	writeText("Neer", 96, 42, {
 		font: "Helvetica-Bold",
 		size: 15,
 		color: "#FFFFFF",
 	});
 
-	writeText("Management Platform", 96, 61, {
+	writeText("Ashroy for your next home", 96, 61, {
 		size: 9.5,
 		color: COLORS.onBrand,
 	});
@@ -325,7 +325,7 @@ export const buildReceiptPdf = async (
 	pdfDocument.restore();
 
 	writeText(
-		"Housing & Roommate Management Platform",
+		"Neer",
 		CONTENT_MARGIN,
 		pageHeight - 60,
 		{

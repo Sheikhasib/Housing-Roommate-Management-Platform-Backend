@@ -583,7 +583,7 @@ const terminateLease = async (
 	try {
 		await sendTemplateEmail({
 			to: tenantProfile.email,
-			subject: "Your Lease Has Been Terminated - Housing & Roommate",
+			subject: "Your Lease Has Been Terminated - Neer",
 			template: "lease-terminated",
 			data: {
 				name: tenantProfile.name,

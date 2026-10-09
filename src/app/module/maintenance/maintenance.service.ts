@@ -385,7 +385,7 @@ const updateMaintenanceStatus = async (
 	try {
 		await sendTemplateEmail({
 			to: maintenanceRequest.tenantProfile.email,
-			subject: `Maintenance Request ${next} - Housing & Roommate`,
+			subject: `Maintenance Request ${next} - Neer`,
 			template: "maintenance-status",
 			data: {
 				name: maintenanceRequest.tenantProfile.name,

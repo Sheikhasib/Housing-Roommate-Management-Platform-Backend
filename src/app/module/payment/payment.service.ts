@@ -74,7 +74,7 @@ const runDepositSettleSideEffects = async (
 
 		await sendTemplateEmail({
 			to: application.tenantProfile.email,
-			subject: "Your Booking Deposit Receipt - Housing & Roommate",
+			subject: "Your Booking Deposit Receipt - Neer",
 			template: "payment-receipt",
 			data: { name: application.tenantProfile.name },
 			attachments: [{ filename: "deposit-receipt.pdf", content: receiptPdf }],
@@ -142,7 +142,7 @@ const runInvoiceSettleSideEffects = async (result: any) => {
 
 		await sendTemplateEmail({
 			to: tenantProfile.email,
-			subject: "Your Invoice Payment Receipt - Housing & Roommate",
+			subject: "Your Invoice Payment Receipt - Neer",
 			template: "payment-receipt",
 			data: { name: tenantProfile.name },
 			attachments: [{ filename: "invoice-receipt.pdf", content: receiptPdf }],
