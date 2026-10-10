@@ -349,7 +349,11 @@ const payInvoice = async (
 		);
 	}
 
-	if (invoice.status !== InvoiceStatus.UNPAID) {
+	// a FAILED attempt may be retried (a fresh session replaces the previous
+	// one); every other status stays terminal for opening a new session
+	const isRetryingFailedInvoice = invoice.status === InvoiceStatus.FAILED;
+
+	if (invoice.status !== InvoiceStatus.UNPAID && !isRetryingFailedInvoice) {
 		throw new AppError(
 			httpStatus.CONFLICT,
 			`Invoice is already ${invoice.status.toLowerCase()}`,
@@ -399,6 +403,15 @@ const payInvoice = async (
 	// provider-neutral refs + the charge snapshot for the settle-time amount
 	// check (I-G2), audited atomically with the upsert
 	const payment = await prisma.$transaction(async (tx) => {
+		// a retried FAILED invoice returns to UNPAID atomically with the new
+		// PROCESSING session, so the row and the invoice never disagree
+		if (isRetryingFailedInvoice) {
+			await tx.invoice.update({
+				where: { id: invoice.id },
+				data: { status: InvoiceStatus.UNPAID },
+			});
+		}
+
 		const row = await tx.payment.upsert({
 			where: { invoiceId: invoice.id },
 			update: {

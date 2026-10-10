@@ -253,6 +253,19 @@ const paymentCallback = async (query: Record<string, any>) => {
 	}
 
 	if (status === "failure" || status === "cancel") {
+		const cancelRedirect = frontendPaymentRedirectFor(
+			payment,
+			"cancel",
+			status === "failure" ? "failure" : "cancel",
+		);
+
+		// a fail/cancel from a superseded session (the row now points at a
+		// newer retry attempt) must never downgrade the live session: leave
+		// every row untouched and just send the payer to the cancel page
+		if (paymentID && paymentID !== payment.bKashPaymentId) {
+			return { redirectUrl: cancelRedirect };
+		}
+
 		// no gateway execution happened - store the raw callback payload.
 		// Conditional writes (I-G4): a late failure/cancel can never clobber
 		// a payment that has meanwhile settled.
@@ -262,13 +275,7 @@ const paymentCallback = async (query: Record<string, any>) => {
 			await markCancelled(payment.id, query);
 		}
 
-		return {
-			redirectUrl: frontendPaymentRedirectFor(
-				payment,
-				"cancel",
-				status === "failure" ? "failure" : "cancel",
-			),
-		};
+		return { redirectUrl: cancelRedirect };
 	}
 
 	// unknown bKash status
@@ -328,6 +335,23 @@ const confirmSslcommerzPayment = async (
 	}
 
 	if (status === "fail" || status === "cancel") {
+		const cancelRedirect = frontendPaymentRedirectFor(
+			payment,
+			"cancel",
+			status === "fail" ? "failure" : "cancel",
+		);
+
+		// a fail/cancel carrying a superseded tran_id (the row now points at a
+		// newer retry attempt) must never downgrade the live session: leave
+		// every row untouched and ack as already handled
+		if (tranId && tranId !== payment.bKashPaymentId) {
+			return {
+				paymentStatus: payment.status,
+				redirectUrl: cancelRedirect,
+				alreadyProcessed: true,
+			};
+		}
+
 		// the session never completed at the gateway - no money moved. Store
 		// the raw notification payload (I-G4 conditional writes).
 		if (status === "fail") {
@@ -339,11 +363,7 @@ const confirmSslcommerzPayment = async (
 		return {
 			paymentStatus:
 				status === "fail" ? PaymentStatus.FAILED : PaymentStatus.CANCELLED,
-			redirectUrl: frontendPaymentRedirectFor(
-				payment,
-				"cancel",
-				status === "fail" ? "failure" : "cancel",
-			),
+			redirectUrl: cancelRedirect,
 			alreadyProcessed: false,
 		};
 	}
